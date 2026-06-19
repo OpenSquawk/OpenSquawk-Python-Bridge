@@ -100,24 +100,46 @@ expects (`ias_kt`, `altitude_ft_indicated`, `n1_pct`, `gear_handle`,
 SimConnect / X-Plane bridge just needs to produce that same dict — the rest of
 the app (HTTP, status, UI) stays unchanged.
 
-## Building a standalone executable (later)
+## Building a clickable app (.exe / .app)
 
-The app is structured to wrap with [PyInstaller](https://pyinstaller.org/):
+One command builds a standalone, double-clickable app for the OS you run it on —
+no Python needed by the end user. It installs the build tools, converts the icon
+to `.ico`/`.icns`, bundles the `web/` assets, and runs
+[PyInstaller](https://pyinstaller.org/):
 
 ```bash
-pip install pyinstaller
-pyinstaller --noconfirm --windowed --name OpenSquawkBridge \
-  --add-data "web:web" \            # Windows: use "web;web"
-  --icon path/to/icon.icns \        # Windows: .ico
-  bridge_app.py
+python build.py
 ```
 
-The `web/` folder (including `web/assets/`) must ship alongside the binary (the
-`--add-data` flag bundles it). The app icon master lives at
-[`web/assets/icon.png`](web/assets/icon.png) — convert it to `.icns` (macOS) or
-`.ico` (Windows) for the `--icon` flag. On Windows the resulting `.exe` also needs
-the Edge WebView2 runtime on the target machine.
+Convenience wrappers do the same thing:
 
-> When running **from source**, the OS would otherwise show the generic Python
-> icon. The app sets the dock/taskbar icon at runtime from `web/assets/icon.png`
-> (macOS via PyObjC, Windows via the Win32 API), so it shows our icon either way.
+- **Windows**: double-click [`build.bat`](build.bat)
+- **macOS / Linux**: run [`./build.sh`](build.sh)
+
+You get, in `dist/`:
+
+| OS | Output | How the user runs it |
+|----|--------|----------------------|
+| Windows | `OpenSquawk Bridge.exe` | a single file — just double-click |
+| macOS | `OpenSquawk Bridge.app` | double-click (or drag to Applications) |
+| Linux | `OpenSquawk Bridge/` | run the binary inside |
+
+> PyInstaller can only build for the OS it runs on, so run `build.py` once on each
+> platform you want to ship (build the `.exe` on a Windows machine, the `.app` on
+> a Mac). On Windows the target machine also needs the Edge WebView2 runtime
+> (preinstalled on Win 11).
+
+### Distributing to non-technical users
+
+The build is **not code-signed**, so the OS will warn on first launch:
+
+- **macOS**: right-click the `.app` → **Open** → **Open** (only needed once). To
+  share it, zip the `.app`. Proper signing/notarization needs an Apple Developer
+  account.
+- **Windows**: SmartScreen may show "Windows protected your PC" → **More info** →
+  **Run anyway**. Proper signing needs a code-signing certificate.
+
+The icon master lives at [`web/assets/icon.png`](web/assets/icon.png); `build.py`
+generates the platform icon from it automatically. When running **from source**
+the app also sets the dock/taskbar icon at runtime (macOS via PyObjC, Windows via
+the Win32 API), so it never shows the generic Python icon.

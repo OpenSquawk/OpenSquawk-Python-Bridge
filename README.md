@@ -11,8 +11,9 @@ SimConnect / X-Plane connector later only means swapping out `simulator.py`.
 
 ## What it does
 
-- **Self-generated device token** — created on first run, stored in
-  `~/.opensquawk-bridge/config.json`, sent as `x-bridge-token` on every request.
+- **Self-generated pairing code** — a 6-character code (A–Z / 0–9) created on
+  first run, stored in `~/.opensquawk-bridge/config.json`, sent as
+  `x-bridge-token` on every request and shown on the login screen.
 - **Login** — opens your browser at `…/bridge/connect?token=<token>`; you sign in
   and link the device on the website. The app polls `GET /api/bridge/me` until it
   sees `connected: true`, then shows your name/email.
@@ -32,11 +33,16 @@ SimConnect / X-Plane connector later only means swapping out `simulator.py`.
   `POST /api/bridge/status` and streams raw SimConnect-style telemetry to
   `POST /api/bridge/data` about once per second.
 - **Live status** — a traffic light shows `Streaming` (data accepted < 3 s ago),
-  `Stalling`, or `Idle`, plus live IAS / ALT / V/S / N1 / gear / flaps.
-- **Flight profile** — a graphic shows the aircraft moving along a takeoff →
-  cruise → landing trajectory and highlights the current phase
+  `Stalling`, or `Idle`.
+- **Live telemetry (collapsible)** — expand the panel to see IAS / ALT / V/S /
+  N1 / gear / flaps and a **flight-profile graphic**: the aircraft moves along a
+  takeoff → cruise → landing trajectory and highlights the current phase
   (Parked → Taxi → Takeoff → Climb → Cruise → Descent → Approach → Landing →
   Rollout).
+
+The app has two screens: the **login screen** (with the pairing code) when not
+linked, and the **main screen** once linked, with a sign-out button in the top-
+right corner.
 
 ## Requirements
 

@@ -9,48 +9,42 @@ const PHASES = [
 let apiReady = false;
 let simsRendered = false;
 let qrRendered = false;
+let teleOpen = false;        // live telemetry collapsed by default
+let loginClicked = false;    // show the waiting indicator after the user starts login
 
 function api() {
   return window.pywebview && window.pywebview.api;
 }
 
+function $(id) { return document.getElementById(id); }
+function setText(id, value) { const el = $(id); if (el) el.textContent = value; }
+
 // ---- flight profile path ---------------------------------------------------
-// A normalized trajectory across the 0..1000 viewBox. Y is inverted (200=ground).
 const PROFILE_POINTS = [
-  [0, 200],     // parked
-  [120, 198],   // taxi
-  [200, 175],   // takeoff / rotate
-  [360, 70],    // climb
-  [560, 40],    // cruise
-  [760, 95],    // descent
-  [880, 165],   // approach
-  [950, 198],   // landing
-  [1000, 200],  // rollout
+  [0, 200], [120, 198], [200, 175], [360, 70], [560, 40],
+  [760, 95], [880, 165], [950, 198], [1000, 200],
 ];
 
 function buildProfilePath() {
-  // smooth-ish polyline using quadratic-ish midpoints
   const pts = PROFILE_POINTS;
   let d = `M ${pts[0][0]} ${pts[0][1]}`;
   for (let i = 1; i < pts.length; i++) {
     const [x, y] = pts[i];
     const [px, py] = pts[i - 1];
     const cx = (px + x) / 2;
-    d += ` Q ${px} ${py} ${cx} ${(py + y) / 2}`;
-    d += ` T ${x} ${y}`;
+    d += ` Q ${px} ${py} ${cx} ${(py + y) / 2} T ${x} ${y}`;
   }
   return d;
 }
 
 function initProfile() {
-  const path = document.getElementById("profile-path");
-  const fill = document.getElementById("profile-fill");
+  const path = $("profile-path");
+  const fill = $("profile-fill");
   const d = buildProfilePath();
   path.setAttribute("d", d);
   fill.setAttribute("d", `${d} L 1000 200 L 0 200 Z`);
 
-  // phase track labels
-  const track = document.getElementById("phase-track");
+  const track = $("phase-track");
   track.innerHTML = "";
   PHASES.forEach((p) => {
     const el = document.createElement("div");
@@ -62,13 +56,15 @@ function initProfile() {
 }
 
 function updatePlane(progress, phase) {
-  const path = document.getElementById("profile-path");
-  const plane = document.getElementById("plane");
+  if (!teleOpen) return;            // skip layout math while collapsed (hidden)
+  const path = $("profile-path");
+  const plane = $("plane");
   if (!path.getTotalLength) return;
   const len = path.getTotalLength();
-  const at = path.getPointAtLength(Math.max(0, Math.min(1, progress)) * len);
-  // a touch above the line and angle from a nearby point
-  const ahead = path.getPointAtLength(Math.min(len, (progress + 0.01) * len));
+  if (!len) return;
+  const p = Math.max(0, Math.min(1, progress));
+  const at = path.getPointAtLength(p * len);
+  const ahead = path.getPointAtLength(Math.min(len, (p + 0.01) * len));
   const angle = Math.atan2(ahead.y - at.y, ahead.x - at.x) * (180 / Math.PI);
   plane.setAttribute("transform", `translate(${at.x}, ${at.y - 12}) rotate(${angle})`);
 
@@ -77,11 +73,11 @@ function updatePlane(progress, phase) {
   });
 }
 
-// ---- rendering -------------------------------------------------------------
+// ---- rendering helpers -----------------------------------------------------
 
 function renderSimulators(state) {
   if (simsRendered) return;
-  const sel = document.getElementById("sim-select");
+  const sel = $("sim-select");
   sel.innerHTML = "";
   state.simulators.forEach((s) => {
     const opt = document.createElement("option");
@@ -94,108 +90,80 @@ function renderSimulators(state) {
   simsRendered = true;
 }
 
-function setText(id, value) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = value;
-}
-
 function renderQr(state) {
   if (qrRendered) return;
-  const box = document.getElementById("qr-box");
+  const box = $("qr-box");
   if (state.pm_qr_svg) {
     box.innerHTML = state.pm_qr_svg;
     qrRendered = true;
   } else {
-    box.innerHTML = '<span class="muted small">Install the<br>qrcode package</span>';
+    box.innerHTML = '<span class="qr-ph">no QR</span>';
   }
 }
 
+function showView(connected) {
+  $("view-login").classList.toggle("hidden", connected);
+  $("view-main").classList.toggle("hidden", !connected);
+  $("logout-btn").classList.toggle("hidden", !connected);
+}
+
+// ---- main render -----------------------------------------------------------
+
 function render(state) {
-  // connection pill + account card
-  const connPill = document.getElementById("conn-pill");
-  const accStatus = document.getElementById("account-status");
-  const accBody = document.getElementById("account-body");
-  const accLinked = document.getElementById("account-linked");
+  // pairing code (login view)
+  setText("code-digits", state.token || "······");
 
-  const launchCard = document.getElementById("launch-card");
-  const hero = document.querySelector(".hero");
-
+  // connection pill + view switch
+  const connPill = $("conn-pill");
   if (state.connected && state.user) {
-    connPill.textContent = "Linked";
+    connPill.textContent = state.user.name || "Linked";
     connPill.className = "pill pill-ok";
-    accStatus.textContent = "LINKED";
-    accStatus.className = "tag tag-cyan";
-    accBody.classList.add("hidden");
-    accLinked.classList.remove("hidden");
-    setText("user-name", state.user.name || "—");
-    setText("user-email", state.user.email || "—");
-
-    // linked → the launch card becomes the main thing; downplay the login hero
-    launchCard.classList.remove("hidden");
-    hero.classList.add("hidden");
+    showView(true);
     renderQr(state);
-    setText("pm-url", state.pm_url || "—");
+    // simulator status
+    const simTag = $("sim-status");
+    if (state.sim_active) { simTag.textContent = "CONNECTED"; simTag.className = "tag tag-green"; }
+    else { simTag.textContent = "DISCONNECTED"; simTag.className = "tag tag-grey"; }
+    const toggle = $("sim-toggle");
+    if (toggle.checked !== state.sim_active) toggle.checked = state.sim_active;
+
+    // stream status
+    const map = {
+      streaming: ["dot dot-green", "Streaming live"],
+      stalling: ["dot dot-amber", "Stalling…"],
+      idle: ["dot dot-grey", "Idle"],
+    };
+    const [cls, txt] = map[state.stream_status] || map.idle;
+    $("stream-dot").className = cls;
+    $("stream-label").textContent = txt;
+
+    // telemetry values
+    const t = state.telemetry || {};
+    setText("m-ias", Math.round(t.ias_kt || 0));
+    setText("m-alt", Math.round(t.altitude_ft_indicated || 0).toLocaleString());
+    setText("m-vs", Math.round(t.vertical_speed_fpm || 0));
+    setText("m-n1", Math.round(t.n1_pct || 0));
+    setText("m-gear", t.gear_handle ? "DOWN" : "UP");
+    setText("m-flaps", t.flaps_index != null ? t.flaps_index : 0);
+
+    const phaseTag = $("phase-tag");
+    phaseTag.textContent = (state.flight_phase || "PARKED").toUpperCase();
+    phaseTag.className = state.sim_active ? "tag tag-cyan" : "tag tag-grey";
+    updatePlane(state.flight_progress || 0, state.flight_phase || "Parked");
   } else {
     connPill.textContent = "Not linked";
     connPill.className = "pill pill-muted";
-    accStatus.textContent = "LOGIN NEEDED";
-    accStatus.className = "tag";
-    accBody.classList.remove("hidden");
-    accLinked.classList.add("hidden");
-    launchCard.classList.add("hidden");
-    hero.classList.remove("hidden");
+    showView(false);
+    $("login-waiting").classList.toggle("hidden", !loginClicked);
   }
-
-  setText("token", state.token || "—");
-  setText("base-url", `Connected to ${state.base_url}`);
-
-  // simulator status tag
-  const simTag = document.getElementById("sim-status");
-  if (state.sim_active) {
-    simTag.textContent = "CONNECTED";
-    simTag.className = "tag tag-green";
-  } else {
-    simTag.textContent = "DISCONNECTED";
-    simTag.className = "tag tag-grey";
-  }
-  const toggle = document.getElementById("sim-toggle");
-  if (toggle.checked !== state.sim_active) toggle.checked = state.sim_active;
-
-  // stream status
-  const dot = document.getElementById("stream-dot");
-  const label = document.getElementById("stream-label");
-  const map = {
-    streaming: ["dot dot-green", "Streaming live"],
-    stalling: ["dot dot-amber", "Stalling…"],
-    idle: ["dot dot-grey", "Idle"],
-  };
-  const [cls, txt] = map[state.stream_status] || map.idle;
-  dot.className = cls;
-  label.textContent = txt;
-
-  // telemetry
-  const t = state.telemetry || {};
-  setText("m-ias", Math.round(t.ias_kt || 0));
-  setText("m-alt", Math.round(t.altitude_ft_indicated || 0).toLocaleString());
-  setText("m-vs", Math.round(t.vertical_speed_fpm || 0));
-  setText("m-n1", Math.round(t.n1_pct || 0));
-  setText("m-gear", t.gear_handle ? "DOWN" : "UP");
-  setText("m-flaps", t.flaps_index != null ? t.flaps_index : 0);
-
-  // phase tag + plane
-  const phaseTag = document.getElementById("phase-tag");
-  phaseTag.textContent = (state.flight_phase || "PARKED").toUpperCase();
-  updatePlane(state.flight_progress || 0, state.flight_phase || "Parked");
 
   // error banner
-  const banner = document.getElementById("banner");
-  if (state.error) {
-    banner.textContent = state.error;
-    banner.classList.remove("hidden");
-  } else {
-    banner.classList.add("hidden");
-  }
+  const banner = $("banner");
+  if (state.error) { banner.textContent = state.error; banner.classList.remove("hidden"); }
+  else banner.classList.add("hidden");
 }
+
+// ---- polling ---------------------------------------------------------------
 
 async function tick() {
   if (!apiReady) return;
@@ -203,42 +171,42 @@ async function tick() {
     const state = await api().get_state();
     renderSimulators(state);
     render(state);
-  } catch (e) {
-    // backend not ready yet; ignore
-  }
+  } catch (e) { /* backend not ready */ }
 }
 
 // ---- wiring ----------------------------------------------------------------
 
-function wireEvents() {
-  document.getElementById("login-btn").addEventListener("click", () => {
-    api().login();
-  });
-  document.getElementById("open-pm-btn").addEventListener("click", () => {
-    api().open_pm();
-  });
-  document.getElementById("logout-btn").addEventListener("click", () => {
-    const toggle = document.getElementById("sim-toggle");
-    toggle.checked = false;
-    api().logout();
-  });
-  document.getElementById("sim-toggle").addEventListener("change", (e) => {
-    api().set_sim_active(e.target.checked);
-  });
-  document.getElementById("sim-select").addEventListener("change", (e) => {
-    api().set_simulator(e.target.value);
-  });
+function toggleTelemetry() {
+  teleOpen = !teleOpen;
+  $("tele-body").classList.toggle("hidden", !teleOpen);
+  $("tele-head").setAttribute("aria-expanded", String(teleOpen));
 }
 
-window.addEventListener("pywebviewready", () => {
-  apiReady = true;
-});
+function wireEvents() {
+  $("login-btn").addEventListener("click", () => {
+    loginClicked = true;
+    $("login-waiting").classList.remove("hidden");
+    api().login();
+  });
+  $("logout-btn").addEventListener("click", () => {
+    loginClicked = false;
+    teleOpen = false;
+    $("tele-body").classList.add("hidden");
+    $("tele-head").setAttribute("aria-expanded", "false");
+    $("sim-toggle").checked = false;
+    api().logout();
+  });
+  $("open-pm-btn").addEventListener("click", () => api().open_pm());
+  $("sim-toggle").addEventListener("change", (e) => api().set_sim_active(e.target.checked));
+  $("sim-select").addEventListener("change", (e) => api().set_simulator(e.target.value));
+  $("tele-head").addEventListener("click", toggleTelemetry);
+}
+
+window.addEventListener("pywebviewready", () => { apiReady = true; });
 
 document.addEventListener("DOMContentLoaded", () => {
   initProfile();
   wireEvents();
-  updatePlane(0, "Parked");
-  // pywebviewready may have fired already
   if (window.pywebview && window.pywebview.api) apiReady = true;
   setInterval(tick, 300);
 });

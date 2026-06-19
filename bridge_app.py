@@ -41,6 +41,11 @@ STREAM_INTERVAL = 1.0   # seconds, POST /data while sim active
 STREAM_STALE_SECONDS = 3.0
 REQUEST_TIMEOUT = 8
 
+# 6-char pairing code (A-Z + 0-9, matches the website). Confusable characters
+# (0/O, 1/I) are excluded so the code stays easy to read and type by hand.
+TOKEN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+TOKEN_LENGTH = 6
+
 SIMULATORS = [
     {"id": "msfs2020", "label": "MSFS 2020", "available": True},
     {"id": "msfs2024", "label": "MSFS 2024", "available": False},
@@ -116,16 +121,24 @@ class BridgeApi:
 
     # ---- persistence -------------------------------------------------------
 
+    @staticmethod
+    def _is_valid_token(token: object) -> bool:
+        return (
+            isinstance(token, str)
+            and len(token) == TOKEN_LENGTH
+            and all(c in TOKEN_ALPHABET for c in token)
+        )
+
     def _load_or_create_token(self) -> str:
         try:
             if CONFIG_FILE.exists():
                 data = json.loads(CONFIG_FILE.read_text())
                 token = data.get("token")
-                if isinstance(token, str) and len(token) >= 6:
+                if self._is_valid_token(token):
                     return token
         except Exception:
             pass
-        token = secrets.token_hex(16)  # 32 hex chars
+        token = "".join(secrets.choice(TOKEN_ALPHABET) for _ in range(TOKEN_LENGTH))
         self._save_config({"token": token})
         return token
 
@@ -305,9 +318,9 @@ def main() -> None:
         "OpenSquawk Bridge",
         url=str(index),
         js_api=api,
-        width=980,
-        height=820,
-        min_size=(760, 640),
+        width=560,
+        height=720,
+        min_size=(480, 600),
         background_color="#0a1622",
     )
 

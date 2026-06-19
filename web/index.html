@@ -7,89 +7,77 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="glow glow-a"></div>
-  <div class="glow glow-b"></div>
+  <!-- App bar -->
+  <header class="appbar">
+    <div class="brand">
+      <span class="brand-mark">◎</span>
+      <span class="brand-name">OpenSquawk</span>
+      <span class="brand-sub">Bridge</span>
+    </div>
+    <div class="appbar-right">
+      <span id="conn-pill" class="pill pill-muted">Not linked</span>
+      <button id="logout-btn" class="icon-btn hidden" title="Sign out">⏻</button>
+    </div>
+  </header>
 
-  <main class="app">
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark">◎</span>
-        <span class="brand-name">OpenSquawk</span>
-        <span class="brand-sub">Bridge</span>
+  <div id="banner" class="banner hidden"></div>
+
+  <main class="content">
+
+    <!-- ============ LOGIN VIEW ============ -->
+    <section id="view-login" class="view login-view">
+      <div class="login-mark">◎</div>
+      <h1 class="login-title">Connect this device</h1>
+      <p class="login-sub">
+        Sign in on opensquawk.de to link this Bridge to your account. Your pairing
+        code is filled in automatically.
+      </p>
+
+      <div class="code-panel">
+        <span class="code-label">PAIRING CODE</span>
+        <div class="code-digits" id="code-digits">······</div>
       </div>
-      <div class="topbar-right">
-        <span id="conn-pill" class="pill pill-muted">Not linked</span>
+
+      <button id="login-btn" class="btn btn-primary">Open login in browser</button>
+
+      <div id="login-waiting" class="waiting hidden">
+        <span class="spinner"></span>
+        <span>Waiting for you to finish in the browser…</span>
       </div>
-    </header>
-
-    <div id="banner" class="banner hidden"></div>
-
-    <section class="hero">
-      <p class="eyebrow">OPENSQUAWK BRIDGE</p>
-      <h1>Link your simulator</h1>
-      <p class="lede">Sign in once, pick your simulator, and stream live telemetry to OpenSquawk.</p>
     </section>
 
-    <!-- Launch card — main action once linked -->
-    <article class="card wide launch hidden" id="launch-card">
-      <div class="card-head">
-        <span class="step">OPEN OPENSQUAWK</span>
-        <span class="tag tag-cyan">READY</span>
-      </div>
-      <div class="launch-grid">
-        <div class="launch-main">
-          <h2>Start recording</h2>
-          <p class="muted">
-            Open the OpenSquawk push-to-talk app. Launch it on this PC next to your
-            simulator, or scan the code to use it on your phone or tablet — both
-            stay linked to your account.
-          </p>
-          <button id="open-pm-btn" class="btn btn-primary btn-lg">Open on this PC</button>
-          <p class="muted small launch-url" id="pm-url">—</p>
-        </div>
-        <div class="launch-qr">
-          <div class="qr-box" id="qr-box"><span class="muted small">QR…</span></div>
-          <p class="muted small">Scan with phone or tablet</p>
-        </div>
-      </div>
-    </article>
+    <!-- ============ MAIN VIEW ============ -->
+    <section id="view-main" class="view hidden">
 
-    <div class="grid">
-      <!-- Account card -->
-      <article class="card" id="account-card">
-        <div class="card-head">
-          <span class="step">ACCOUNT</span>
-          <span id="account-status" class="tag">LOGIN NEEDED</span>
+      <!-- Launch -->
+      <article class="panel launch">
+        <div class="panel-head">
+          <span class="panel-title">Open OpenSquawk</span>
+          <span class="tag tag-cyan">READY</span>
         </div>
-        <h2>Sign in &amp; link</h2>
-        <div id="account-body">
-          <p class="muted" id="account-text">
-            Click below to open OpenSquawk in your browser and link this device.
-          </p>
-          <button id="login-btn" class="btn btn-primary">Go to login</button>
+        <p class="panel-text">
+          Launch the push-to-talk app next to your simulator, or scan to use it on
+          a phone or tablet — both stay linked to your account.
+        </p>
+        <button id="open-pm-btn" class="btn btn-primary">Open on this PC</button>
+        <div class="qr-row">
+          <div class="qr-box" id="qr-box"><span class="qr-ph">QR…</span></div>
+          <span class="qr-cap">Scan with<br>phone or tablet</span>
         </div>
-        <div id="account-linked" class="hidden">
-          <div class="kv"><span>Signed in as</span><strong id="user-name">—</strong></div>
-          <div class="kv"><span>Email</span><strong id="user-email">—</strong></div>
-          <button id="logout-btn" class="btn btn-ghost">Logout</button>
-        </div>
-        <p class="token-line">Device token <code id="token">—</code></p>
       </article>
 
-      <!-- Simulator card -->
-      <article class="card" id="sim-card">
-        <div class="card-head">
-          <span class="step">SIMULATOR</span>
+      <!-- Simulator -->
+      <article class="panel">
+        <div class="panel-head">
+          <span class="panel-title">Simulator</span>
           <span id="sim-status" class="tag tag-grey">DISCONNECTED</span>
         </div>
-        <h2>Connection</h2>
-        <label class="field-label" for="sim-select">Simulator</label>
         <select id="sim-select" class="select"></select>
 
-        <div class="switch-row">
-          <div>
-            <div class="switch-title">Sim active (dummy)</div>
-            <div class="muted small">Simulate a live flight and stream it.</div>
+        <div class="row">
+          <div class="row-text">
+            <div class="row-title">Sim active (dummy)</div>
+            <div class="row-sub">Simulate a live flight and stream it.</div>
           </div>
           <label class="switch">
             <input type="checkbox" id="sim-toggle" />
@@ -102,47 +90,48 @@
           <span id="stream-label">Idle</span>
         </div>
       </article>
-    </div>
 
-    <!-- Live telemetry -->
-    <article class="card wide" id="live-card">
-      <div class="card-head">
-        <span class="step">LIVE TELEMETRY</span>
-        <span id="phase-tag" class="tag tag-cyan">PARKED</span>
-      </div>
+      <!-- Live telemetry (collapsible) -->
+      <article class="panel">
+        <button class="panel-head collapse-head" id="tele-head" aria-expanded="false">
+          <span class="panel-title">Live telemetry</span>
+          <span class="head-right">
+            <span id="phase-tag" class="tag tag-grey">PARKED</span>
+            <span class="chevron" id="tele-chevron">▾</span>
+          </span>
+        </button>
 
-      <div class="metrics">
-        <div class="metric"><span class="m-val" id="m-ias">0</span><span class="m-lab">IAS · kt</span></div>
-        <div class="metric"><span class="m-val" id="m-alt">0</span><span class="m-lab">ALT · ft</span></div>
-        <div class="metric"><span class="m-val" id="m-vs">0</span><span class="m-lab">V/S · fpm</span></div>
-        <div class="metric"><span class="m-val" id="m-n1">0</span><span class="m-lab">N1 · %</span></div>
-        <div class="metric"><span class="m-val" id="m-gear">—</span><span class="m-lab">Gear</span></div>
-        <div class="metric"><span class="m-val" id="m-flaps">0</span><span class="m-lab">Flaps</span></div>
-      </div>
+        <div id="tele-body" class="collapse-body hidden">
+          <div class="metrics">
+            <div class="metric"><span class="m-val" id="m-ias">0</span><span class="m-lab">IAS · kt</span></div>
+            <div class="metric"><span class="m-val" id="m-alt">0</span><span class="m-lab">ALT · ft</span></div>
+            <div class="metric"><span class="m-val" id="m-vs">0</span><span class="m-lab">V/S · fpm</span></div>
+            <div class="metric"><span class="m-val" id="m-n1">0</span><span class="m-lab">N1 · %</span></div>
+            <div class="metric"><span class="m-val" id="m-gear">—</span><span class="m-lab">Gear</span></div>
+            <div class="metric"><span class="m-val" id="m-flaps">0</span><span class="m-lab">Flaps</span></div>
+          </div>
 
-      <!-- Flight profile -->
-      <div class="profile">
-        <svg id="profile-svg" viewBox="0 0 1000 220" preserveAspectRatio="none">
-          <defs>
-            <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="rgba(6,182,212,0.28)" />
-              <stop offset="100%" stop-color="rgba(6,182,212,0)" />
-            </linearGradient>
-          </defs>
-          <line x1="0" y1="200" x2="1000" y2="200" class="ground" />
-          <path id="profile-fill" d="" fill="url(#fill)" stroke="none" />
-          <path id="profile-path" d="" class="trajectory" />
-          <g id="plane" transform="translate(0,200)">
-            <text class="plane-icon" x="0" y="0">✈</text>
-          </g>
-        </svg>
-        <div class="phase-track" id="phase-track"></div>
-      </div>
-    </article>
+          <div class="profile">
+            <svg id="profile-svg" viewBox="0 0 1000 220" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="rgba(6,182,212,0.28)" />
+                  <stop offset="100%" stop-color="rgba(6,182,212,0)" />
+                </linearGradient>
+              </defs>
+              <line x1="0" y1="200" x2="1000" y2="200" class="ground" />
+              <path id="profile-fill" d="" fill="url(#fill)" stroke="none" />
+              <path id="profile-path" d="" class="trajectory" />
+              <g id="plane" transform="translate(0,200)">
+                <text class="plane-icon" x="0" y="0">✈</text>
+              </g>
+            </svg>
+            <div class="phase-track" id="phase-track"></div>
+          </div>
+        </div>
+      </article>
 
-    <footer class="foot">
-      <span id="base-url" class="muted small"></span>
-    </footer>
+    </section>
   </main>
 
   <script src="app.js"></script>

@@ -145,6 +145,9 @@ function render(state) {
     setText("m-n1", Math.round(t.n1_pct || 0));
     setText("m-gear", t.gear_handle ? "DOWN" : "UP");
     setText("m-flaps", t.flaps_index != null ? t.flaps_index : 0);
+    setText("m-com1", t.com1_active_mhz != null ? t.com1_active_mhz.toFixed(3) : "—");
+    setText("m-com2", t.com2_active_mhz != null ? t.com2_active_mhz.toFixed(3) : "—");
+    setText("m-sqwk", t.transponder_code != null ? String(t.transponder_code).padStart(4, "0") : "—");
 
     const phaseTag = $("phase-tag");
     phaseTag.textContent = (state.flight_phase || "PARKED").toUpperCase();

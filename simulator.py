@@ -33,6 +33,21 @@ _PHASES = [
 # How long one full parked->parked flight takes, in seconds.
 LOOP_SECONDS = 120.0
 
+# Active COM1 frequency the pilot would be tuned to during each phase, so the
+# Live ATC view shows a plausible "selected frequency" that changes with the flight.
+COM1_BY_PHASE = {
+    "Parked": 121.900,    # Ground / Clearance
+    "Taxi": 121.900,      # Ground
+    "Takeoff": 118.300,   # Tower
+    "Climb": 124.350,     # Departure
+    "Cruise": 132.150,    # Center
+    "Descent": 119.100,   # Approach
+    "Approach": 119.100,  # Approach
+    "Landing": 118.300,   # Tower
+    "Rollout": 121.900,   # Ground
+}
+COM2_GUARD_MHZ = 121.500  # emergency guard, kept on the standby radio
+
 CRUISE_ALT_FT = 35000.0
 CRUISE_IAS_KT = 280.0
 CLIMB_VS_FPM = 2200.0
@@ -162,6 +177,9 @@ class DummyFlight:
 
         flight_active = not on_ground
 
+        com1_active = COM1_BY_PHASE.get(phase, 121.900)
+        squawk = 2000 if on_ground else 4677
+
         raw = {
             "ias_kt": round(ias, 1),
             "tas_kt": round(ias * 1.02, 1),
@@ -178,7 +196,10 @@ class DummyFlight:
             "flaps_index": int(flaps),
             "parking_brake": parking_brake,
             "autopilot_master": phase in ("Climb", "Cruise", "Descent"),
-            "transponder_code": 2000,
+            "com1_active_mhz": com1_active,
+            "com1_standby_mhz": COM2_GUARD_MHZ,
+            "com2_active_mhz": COM2_GUARD_MHZ,
+            "transponder_code": squawk,
         }
 
         return FlightState(

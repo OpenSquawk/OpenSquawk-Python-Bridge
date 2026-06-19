@@ -367,6 +367,7 @@ html, body {
   color: var(--cyan-bright);
   font-variant-numeric: tabular-nums;
 }
+.m-val.m-freq { font-size: 17px; letter-spacing: 0.3px; }
 .m-lab {
   display: block; margin-top: 3px;
   font-size: 9.5px; letter-spacing: 0.8px;

@@ -35,6 +35,21 @@ html, body {
 
 .hidden { display: none !important; }
 
+/* ===== background banner (linked state) ===== */
+.bg-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 380px;
+  z-index: 0;
+  background-image: url("assets/banner.jpeg");
+  background-size: cover;
+  background-position: center 28%;
+  opacity: 0.42;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.45) 50%, transparent 100%);
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.45) 50%, transparent 100%);
+}
+
 /* ===== app bar ===== */
 .appbar {
   position: fixed;
@@ -96,6 +111,7 @@ html, body {
   top: var(--appbar-h); left: 0; right: 0; bottom: 0;
   overflow-y: auto;
   padding: 16px;
+  z-index: 1;                 /* sit above the fixed background banner */
 }
 .banner {
   position: fixed;

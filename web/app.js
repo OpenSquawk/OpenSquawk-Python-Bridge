@@ -105,6 +105,7 @@ function showView(connected) {
   $("view-login").classList.toggle("hidden", connected);
   $("view-main").classList.toggle("hidden", !connected);
   $("logout-btn").classList.toggle("hidden", !connected);
+  $("bg-banner").classList.toggle("hidden", !connected);
 }
 
 // ---- main render -----------------------------------------------------------

@@ -327,6 +327,45 @@ class BridgeApi:
             }
 
 
+ICON_PNG = WEB_DIR / "assets" / "icon.png"
+
+
+def _apply_runtime_icon(*_args) -> None:
+    """Set the app icon shown by the OS.
+
+    Packaged builds get their icon from PyInstaller's --icon, but when running
+    from source the process icon is Python's. This sets it at runtime so the
+    dock/taskbar shows our icon either way. Best effort — never fatal.
+    """
+    if not ICON_PNG.exists():
+        return
+    try:
+        if sys.platform == "darwin":
+            from AppKit import NSApplication, NSImage  # provided by pyobjc
+
+            image = NSImage.alloc().initByReferencingFile_(str(ICON_PNG))
+            if image is not None:
+                NSApplication.sharedApplication().setApplicationIconImage_(image)
+        elif sys.platform.startswith("win"):
+            import ctypes
+
+            # Group all our windows under one taskbar icon identity.
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "de.opensquawk.bridge"
+            )
+            user32 = ctypes.windll.user32
+            hicon = user32.LoadImageW(
+                None, str(ICON_PNG), 1, 0, 0, 0x00000010 | 0x00000040
+            )  # IMAGE_ICON | LR_LOADFROMFILE | LR_DEFAULTSIZE
+            if hicon:
+                hwnd = user32.GetActiveWindow()
+                if hwnd:
+                    user32.SendMessageW(hwnd, 0x0080, 0, hicon)  # WM_SETICON ICON_SMALL
+                    user32.SendMessageW(hwnd, 0x0080, 1, hicon)  # WM_SETICON ICON_BIG
+    except Exception as exc:  # pragma: no cover - platform/optional dependent
+        print(f"[icon] could not set runtime app icon: {exc}")
+
+
 def main() -> None:
     api = BridgeApi()
     index = WEB_DIR / "index.html"
@@ -344,7 +383,14 @@ def main() -> None:
         api._stop.set()
 
     window.events.closing += _on_closing
-    webview.start()
+    window.events.shown += _apply_runtime_icon  # set the icon once the UI is up
+
+    # `icon` is honoured by the GTK/Qt backends; ignored (harmlessly) elsewhere.
+    try:
+        webview.start(icon=str(ICON_PNG))
+    except TypeError:
+        # older pywebview without the `icon` kwarg
+        webview.start()
 
 
 if __name__ == "__main__":

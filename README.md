@@ -114,6 +114,10 @@ pyinstaller --noconfirm --windowed --name OpenSquawkBridge \
 
 The `web/` folder (including `web/assets/`) must ship alongside the binary (the
 `--add-data` flag bundles it). The app icon master lives at
-[`web/assets/icon.jpeg`](web/assets/icon.jpeg) — convert it to `.icns` (macOS) or
+[`web/assets/icon.png`](web/assets/icon.png) — convert it to `.icns` (macOS) or
 `.ico` (Windows) for the `--icon` flag. On Windows the resulting `.exe` also needs
 the Edge WebView2 runtime on the target machine.
+
+> When running **from source**, the OS would otherwise show the generic Python
+> icon. The app sets the dock/taskbar icon at runtime from `web/assets/icon.png`
+> (macOS via PyObjC, Windows via the Win32 API), so it shows our icon either way.

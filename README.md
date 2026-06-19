@@ -24,9 +24,9 @@ SimConnect / X-Plane connector later only means swapping out `simulator.py`.
     same account via the token. (QR rendering needs the `qrcode` package; it's in
     `requirements.txt`.)
 - **Logout** — local only. (The server `/disconnect` needs a browser session the
-  app doesn't hold, so logout stops streaming and forgets the link locally; the
-  device token is **kept** for a stable identity. To fully unlink, use the
-  website.)
+  app doesn't hold.) Logout stops streaming, forgets the link, and **issues a new
+  pairing code** so the previous link can no longer be reused. To also unlink the
+  old code server-side, use the website.
 - **Simulator picker** — `MSFS 2020` (active), `MSFS 2024` and `X-Plane`
   (*coming soon*, disabled).
 - **Sim active switch (dummy)** — turns the dummy flight on. It reports
@@ -108,9 +108,12 @@ The app is structured to wrap with [PyInstaller](https://pyinstaller.org/):
 pip install pyinstaller
 pyinstaller --noconfirm --windowed --name OpenSquawkBridge \
   --add-data "web:web" \            # Windows: use "web;web"
+  --icon path/to/icon.icns \        # Windows: .ico
   bridge_app.py
 ```
 
-The `web/` folder must ship alongside the binary (the `--add-data` flag bundles
-it). On Windows the resulting `.exe` also needs the Edge WebView2 runtime on the
-target machine.
+The `web/` folder (including `web/assets/`) must ship alongside the binary (the
+`--add-data` flag bundles it). The app icon master lives at
+[`web/assets/icon.jpeg`](web/assets/icon.jpeg) — convert it to `.icns` (macOS) or
+`.ico` (Windows) for the `--icon` flag. On Windows the resulting `.exe` also needs
+the Edge WebView2 runtime on the target machine.

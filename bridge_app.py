@@ -59,6 +59,10 @@ def _now() -> float:
     return time.time()
 
 
+def _generate_token() -> str:
+    return "".join(secrets.choice(TOKEN_ALPHABET) for _ in range(TOKEN_LENGTH))
+
+
 def _make_qr_svg(data: str) -> str | None:
     """Render `data` as a self-contained SVG QR code (no Pillow needed)."""
     try:
@@ -138,9 +142,16 @@ class BridgeApi:
                     return token
         except Exception:
             pass
-        token = "".join(secrets.choice(TOKEN_ALPHABET) for _ in range(TOKEN_LENGTH))
+        token = _generate_token()
         self._save_config({"token": token})
         return token
+
+    def _rotate_token(self) -> None:
+        """Issue a fresh pairing code and rebuild the per-token PM link + QR."""
+        self.token = _generate_token()
+        self._save_config({"token": self.token})
+        self.pm_url = f"{PM_URL}?token={self.token}"
+        self.pm_qr_svg = _make_qr_svg(self.pm_url)
 
     def _save_config(self, data: dict) -> None:
         try:
@@ -250,7 +261,11 @@ class BridgeApi:
         return {"ok": True, "url": self.pm_url}
 
     def logout(self) -> dict:
-        """Local logout: stop streaming, forget connection. Token is kept."""
+        """Local logout: stop streaming, forget connection, issue a new code.
+
+        We cannot server-side unlink (that needs a browser session), so rotating
+        the pairing code ensures the previous link can no longer be reused.
+        """
         self.polling = False
         with self._lock:
             self.sim_active = False
@@ -258,7 +273,8 @@ class BridgeApi:
             self.user = None
             self.last_data_ok_at = None
             self.last_telemetry = None
-        return {"ok": True}
+        self._rotate_token()
+        return {"ok": True, "token": self.token}
 
     def set_sim_active(self, active: bool) -> dict:
         active = bool(active)

@@ -130,7 +130,7 @@ function render(state) {
     // stream status
     const map = {
       streaming: ["dot dot-green", "Streaming live"],
-      stalling: ["dot dot-amber", "Stalling…"],
+      stalling: ["dot dot-amber", "Reconnecting…"],
       idle: ["dot dot-grey", "Idle"],
     };
     const [cls, txt] = map[state.stream_status] || map.idle;
@@ -190,6 +190,7 @@ function wireEvents() {
   });
   $("logout-btn").addEventListener("click", () => {
     loginClicked = false;
+    qrRendered = false;   // token rotates on logout → redraw QR on next link
     teleOpen = false;
     $("tele-body").classList.add("hidden");
     $("tele-head").setAttribute("aria-expanded", "false");

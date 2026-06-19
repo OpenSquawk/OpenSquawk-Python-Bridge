@@ -50,6 +50,7 @@ SIMULATORS = [
     {"id": "msfs2020", "label": "MSFS 2020", "available": True},
     {"id": "msfs2024", "label": "MSFS 2024", "available": False},
     {"id": "xplane", "label": "X-Plane", "available": False},
+    {"id": "flightgear", "label": "Flightgear", "available": False},
 ]
 
 WEB_DIR = _resource_dir() / "web"

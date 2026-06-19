@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenSquawk Bridge</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="glow glow-a"></div>
+  <div class="glow glow-b"></div>
+
+  <main class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">◎</span>
+        <span class="brand-name">OpenSquawk</span>
+        <span class="brand-sub">Bridge</span>
+      </div>
+      <div class="topbar-right">
+        <span id="conn-pill" class="pill pill-muted">Not linked</span>
+      </div>
+    </header>
+
+    <div id="banner" class="banner hidden"></div>
+
+    <section class="hero">
+      <p class="eyebrow">OPENSQUAWK BRIDGE</p>
+      <h1>Link your simulator</h1>
+      <p class="lede">Sign in once, pick your simulator, and stream live telemetry to OpenSquawk.</p>
+    </section>
+
+    <div class="grid">
+      <!-- Account card -->
+      <article class="card" id="account-card">
+        <div class="card-head">
+          <span class="step">ACCOUNT</span>
+          <span id="account-status" class="tag">LOGIN NEEDED</span>
+        </div>
+        <h2>Sign in &amp; link</h2>
+        <div id="account-body">
+          <p class="muted" id="account-text">
+            Click below to open OpenSquawk in your browser and link this device.
+          </p>
+          <button id="login-btn" class="btn btn-primary">Go to login</button>
+        </div>
+        <div id="account-linked" class="hidden">
+          <div class="kv"><span>Signed in as</span><strong id="user-name">—</strong></div>
+          <div class="kv"><span>Email</span><strong id="user-email">—</strong></div>
+          <button id="logout-btn" class="btn btn-ghost">Logout</button>
+        </div>
+        <p class="token-line">Device token <code id="token">—</code></p>
+      </article>
+
+      <!-- Simulator card -->
+      <article class="card" id="sim-card">
+        <div class="card-head">
+          <span class="step">SIMULATOR</span>
+          <span id="sim-status" class="tag tag-grey">DISCONNECTED</span>
+        </div>
+        <h2>Connection</h2>
+        <label class="field-label" for="sim-select">Simulator</label>
+        <select id="sim-select" class="select"></select>
+
+        <div class="switch-row">
+          <div>
+            <div class="switch-title">Sim active (dummy)</div>
+            <div class="muted small">Simulate a live flight and stream it.</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="sim-toggle" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="stream-row">
+          <span id="stream-dot" class="dot dot-grey"></span>
+          <span id="stream-label">Idle</span>
+        </div>
+      </article>
+    </div>
+
+    <!-- Live telemetry -->
+    <article class="card wide" id="live-card">
+      <div class="card-head">
+        <span class="step">LIVE TELEMETRY</span>
+        <span id="phase-tag" class="tag tag-cyan">PARKED</span>
+      </div>
+
+      <div class="metrics">
+        <div class="metric"><span class="m-val" id="m-ias">0</span><span class="m-lab">IAS · kt</span></div>
+        <div class="metric"><span class="m-val" id="m-alt">0</span><span class="m-lab">ALT · ft</span></div>
+        <div class="metric"><span class="m-val" id="m-vs">0</span><span class="m-lab">V/S · fpm</span></div>
+        <div class="metric"><span class="m-val" id="m-n1">0</span><span class="m-lab">N1 · %</span></div>
+        <div class="metric"><span class="m-val" id="m-gear">—</span><span class="m-lab">Gear</span></div>
+        <div class="metric"><span class="m-val" id="m-flaps">0</span><span class="m-lab">Flaps</span></div>
+      </div>
+
+      <!-- Flight profile -->
+      <div class="profile">
+        <svg id="profile-svg" viewBox="0 0 1000 220" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="rgba(6,182,212,0.28)" />
+              <stop offset="100%" stop-color="rgba(6,182,212,0)" />
+            </linearGradient>
+          </defs>
+          <line x1="0" y1="200" x2="1000" y2="200" class="ground" />
+          <path id="profile-fill" d="" fill="url(#fill)" stroke="none" />
+          <path id="profile-path" d="" class="trajectory" />
+          <g id="plane" transform="translate(0,200)">
+            <text class="plane-icon" x="0" y="0">✈</text>
+          </g>
+        </svg>
+        <div class="phase-track" id="phase-track"></div>
+      </div>
+    </article>
+
+    <footer class="foot">
+      <span id="base-url" class="muted small"></span>
+    </footer>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

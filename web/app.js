@@ -197,6 +197,7 @@ function wireEvents() {
     $("sim-toggle").checked = false;
     api().logout();
   });
+  $("signup-link").addEventListener("click", (e) => { e.preventDefault(); api().open_signup(); });
   $("open-pm-btn").addEventListener("click", () => api().open_pm());
   $("sim-toggle").addEventListener("change", (e) => api().set_sim_active(e.target.checked));
   $("sim-select").addEventListener("change", (e) => api().set_simulator(e.target.value));

@@ -255,6 +255,11 @@ class BridgeApi:
         webbrowser.open(url, new=2)
         return {"ok": True, "url": url}
 
+    def open_signup(self) -> dict:
+        """Open opensquawk.de in the browser so the user can create an account."""
+        webbrowser.open(BASE_URL, new=2)
+        return {"ok": True, "url": BASE_URL}
+
     def open_pm(self) -> dict:
         """Open the OpenSquawk PM/recording app in the browser on this PC."""
         webbrowser.open(self.pm_url, new=2)

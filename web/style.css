@@ -171,6 +171,19 @@ html, body {
   color: var(--cyan-bright);
 }
 
+.signup-line {
+  margin: 16px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.signup-line a {
+  color: var(--cyan-bright);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.signup-line a:hover { text-decoration: underline; }
+
 .waiting {
   display: flex;
   align-items: center;

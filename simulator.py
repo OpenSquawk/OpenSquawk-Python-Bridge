@@ -12,8 +12,23 @@ in a real connector later only means replacing this module.
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass
+
+# Dummy great-circle route used to generate moving GPS coordinates: the aircraft
+# travels from departure to arrival as the flight progresses (0..1).
+DEP_LATLON = (37.6213, -122.3790)   # KSFO
+ARR_LATLON = (33.9416, -118.4085)   # KLAX
+
+
+def _bearing_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """True heading (0..360) from point 1 to point 2."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dlon = math.radians(lon2 - lon1)
+    y = math.sin(dlon) * math.cos(p2)
+    x = math.cos(p1) * math.sin(p2) - math.sin(p1) * math.cos(p2) * math.cos(dlon)
+    return (math.degrees(math.atan2(y, x)) + 360.0) % 360.0
 
 
 # Phase boundaries expressed as a fraction (0..1) of the full flight loop.
@@ -192,6 +207,19 @@ class DummyFlight:
         com_standby = COM_STANDBY_BY_PHASE.get(phase, 121.500)
         squawk = 2000 if on_ground else 4677
 
+        # GPS position: interpolate along the route by overall progress, with the
+        # heading pointing slightly ahead along the track.
+        latitude = _lerp(DEP_LATLON[0], ARR_LATLON[0], p)
+        longitude = _lerp(DEP_LATLON[1], ARR_LATLON[1], p)
+        ahead = min(p + 0.01, 1.0)
+        lat_ahead = _lerp(DEP_LATLON[0], ARR_LATLON[0], ahead)
+        lon_ahead = _lerp(DEP_LATLON[1], ARR_LATLON[1], ahead)
+        heading = (
+            _bearing_deg(latitude, longitude, lat_ahead, lon_ahead)
+            if ahead > p
+            else _bearing_deg(*DEP_LATLON, *ARR_LATLON)
+        )
+
         raw = {
             "ias_kt": round(ias, 1),
             "tas_kt": round(ias * 1.02, 1),
@@ -211,6 +239,9 @@ class DummyFlight:
             "com_active_frequency": com_active,
             "com_standby_frequency": com_standby,
             "transponder_code": squawk,
+            "latitude_deg": round(latitude, 6),
+            "longitude_deg": round(longitude, 6),
+            "heading_deg": round(heading, 1),
         }
 
         return FlightState(

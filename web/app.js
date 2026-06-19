@@ -149,6 +149,9 @@ function render(state) {
     setText("m-coma", t.com_active_frequency != null ? t.com_active_frequency.toFixed(3) : "—");
     setText("m-coms", t.com_standby_frequency != null ? t.com_standby_frequency.toFixed(3) : "—");
     setText("m-sqwk", t.transponder_code != null ? String(t.transponder_code).padStart(4, "0") : "—");
+    setText("m-lat", t.latitude_deg != null ? t.latitude_deg.toFixed(4) : "—");
+    setText("m-lon", t.longitude_deg != null ? t.longitude_deg.toFixed(4) : "—");
+    setText("m-hdg", t.heading_deg != null ? Math.round(t.heading_deg) + "°" : "—");
 
     const phaseTag = $("phase-tag");
     phaseTag.textContent = (state.flight_phase || "PARKED").toUpperCase();

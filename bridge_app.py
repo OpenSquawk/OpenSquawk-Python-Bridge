@@ -31,6 +31,7 @@ def _resource_dir() -> Path:
 BASE_URL = os.environ.get("OPENSQUAWK_BASE_URL", "https://opensquawk.de")
 CONNECT_URL = f"{BASE_URL}/bridge/connect"
 API_URL = f"{BASE_URL}/api/bridge"
+PM_URL = f"{BASE_URL}/pm"  # the push-to-talk / recording app
 
 CONFIG_DIR = Path.home() / ".opensquawk-bridge"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -53,6 +54,27 @@ def _now() -> float:
     return time.time()
 
 
+def _make_qr_svg(data: str) -> str | None:
+    """Render `data` as a self-contained SVG QR code (no Pillow needed)."""
+    try:
+        import qrcode
+        import qrcode.image.svg
+        from io import BytesIO
+
+        img = qrcode.make(
+            data,
+            image_factory=qrcode.image.svg.SvgPathImage,
+            box_size=11,
+            border=2,
+        )
+        buf = BytesIO()
+        img.save(buf)
+        return buf.getvalue().decode("utf-8")
+    except Exception as exc:  # pragma: no cover - optional dependency
+        print(f"[qr] could not generate QR ({exc.__class__.__name__}: {exc})")
+        return None
+
+
 class BridgeApi:
     """Exposed to the frontend as `window.pywebview.api`."""
 
@@ -61,6 +83,10 @@ class BridgeApi:
 
         self.token = self._load_or_create_token()
         self.flight = DummyFlight()
+
+        # the PM/recording app link is per-token and stable, so build it once
+        self.pm_url = f"{PM_URL}?token={self.token}"
+        self.pm_qr_svg = _make_qr_svg(self.pm_url)
 
         # connection / account state
         self.connected = False
@@ -205,6 +231,11 @@ class BridgeApi:
         webbrowser.open(url, new=2)
         return {"ok": True, "url": url}
 
+    def open_pm(self) -> dict:
+        """Open the OpenSquawk PM/recording app in the browser on this PC."""
+        webbrowser.open(self.pm_url, new=2)
+        return {"ok": True, "url": self.pm_url}
+
     def logout(self) -> dict:
         """Local logout: stop streaming, forget connection. Token is kept."""
         self.polling = False
@@ -252,6 +283,8 @@ class BridgeApi:
                 "token": self.token,
                 "connected": self.connected,
                 "user": self.user,
+                "pm_url": self.pm_url,
+                "pm_qr_svg": self.pm_qr_svg,
                 "sim_active": self.sim_active,
                 "simulator_id": self.simulator_id,
                 "simulators": SIMULATORS,

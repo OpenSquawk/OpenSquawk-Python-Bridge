@@ -30,6 +30,30 @@
       <p class="lede">Sign in once, pick your simulator, and stream live telemetry to OpenSquawk.</p>
     </section>
 
+    <!-- Launch card — main action once linked -->
+    <article class="card wide launch hidden" id="launch-card">
+      <div class="card-head">
+        <span class="step">OPEN OPENSQUAWK</span>
+        <span class="tag tag-cyan">READY</span>
+      </div>
+      <div class="launch-grid">
+        <div class="launch-main">
+          <h2>Start recording</h2>
+          <p class="muted">
+            Open the OpenSquawk push-to-talk app. Launch it on this PC next to your
+            simulator, or scan the code to use it on your phone or tablet — both
+            stay linked to your account.
+          </p>
+          <button id="open-pm-btn" class="btn btn-primary btn-lg">Open on this PC</button>
+          <p class="muted small launch-url" id="pm-url">—</p>
+        </div>
+        <div class="launch-qr">
+          <div class="qr-box" id="qr-box"><span class="muted small">QR…</span></div>
+          <p class="muted small">Scan with phone or tablet</p>
+        </div>
+      </div>
+    </article>
+
     <div class="grid">
       <!-- Account card -->
       <article class="card" id="account-card">

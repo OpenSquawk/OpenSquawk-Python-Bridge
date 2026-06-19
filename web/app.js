@@ -8,6 +8,7 @@ const PHASES = [
 
 let apiReady = false;
 let simsRendered = false;
+let qrRendered = false;
 
 function api() {
   return window.pywebview && window.pywebview.api;
@@ -98,12 +99,26 @@ function setText(id, value) {
   if (el) el.textContent = value;
 }
 
+function renderQr(state) {
+  if (qrRendered) return;
+  const box = document.getElementById("qr-box");
+  if (state.pm_qr_svg) {
+    box.innerHTML = state.pm_qr_svg;
+    qrRendered = true;
+  } else {
+    box.innerHTML = '<span class="muted small">Install the<br>qrcode package</span>';
+  }
+}
+
 function render(state) {
   // connection pill + account card
   const connPill = document.getElementById("conn-pill");
   const accStatus = document.getElementById("account-status");
   const accBody = document.getElementById("account-body");
   const accLinked = document.getElementById("account-linked");
+
+  const launchCard = document.getElementById("launch-card");
+  const hero = document.querySelector(".hero");
 
   if (state.connected && state.user) {
     connPill.textContent = "Linked";
@@ -114,6 +129,12 @@ function render(state) {
     accLinked.classList.remove("hidden");
     setText("user-name", state.user.name || "—");
     setText("user-email", state.user.email || "—");
+
+    // linked → the launch card becomes the main thing; downplay the login hero
+    launchCard.classList.remove("hidden");
+    hero.classList.add("hidden");
+    renderQr(state);
+    setText("pm-url", state.pm_url || "—");
   } else {
     connPill.textContent = "Not linked";
     connPill.className = "pill pill-muted";
@@ -121,6 +142,8 @@ function render(state) {
     accStatus.className = "tag";
     accBody.classList.remove("hidden");
     accLinked.classList.add("hidden");
+    launchCard.classList.add("hidden");
+    hero.classList.remove("hidden");
   }
 
   setText("token", state.token || "—");
@@ -190,6 +213,9 @@ async function tick() {
 function wireEvents() {
   document.getElementById("login-btn").addEventListener("click", () => {
     api().login();
+  });
+  document.getElementById("open-pm-btn").addEventListener("click", () => {
+    api().open_pm();
   });
   document.getElementById("logout-btn").addEventListener("click", () => {
     const toggle = document.getElementById("sim-toggle");

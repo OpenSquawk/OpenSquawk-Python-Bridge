@@ -16,6 +16,12 @@ SimConnect / X-Plane connector later only means swapping out `simulator.py`.
 - **Login** — opens your browser at `…/bridge/connect?token=<token>`; you sign in
   and link the device on the website. The app polls `GET /api/bridge/me` until it
   sees `connected: true`, then shows your name/email.
+- **Launch the app (once linked)** — the linked view becomes the main screen. The
+  OpenSquawk push-to-talk / recording app lives at `…/pm?token=<token>`. You can:
+  - **Open on this PC** — opens it in a browser window next to your simulator.
+  - **Scan the QR code** — open it on a phone or tablet; it stays linked to the
+    same account via the token. (QR rendering needs the `qrcode` package; it's in
+    `requirements.txt`.)
 - **Logout** — local only. (The server `/disconnect` needs a browser session the
   app doesn't hold, so logout stops streaming and forgets the link locally; the
   device token is **kept** for a stable identity. To fully unlink, use the

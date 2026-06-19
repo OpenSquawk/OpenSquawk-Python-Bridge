@@ -33,9 +33,10 @@ _PHASES = [
 # How long one full parked->parked flight takes, in seconds.
 LOOP_SECONDS = 120.0
 
-# Active COM1 frequency the pilot would be tuned to during each phase, so the
-# Live ATC view shows a plausible "selected frequency" that changes with the flight.
-COM1_BY_PHASE = {
+# Active / standby COM frequency the pilot would be tuned to during each phase,
+# so the Live ATC view shows a plausible "selected frequency" that changes with
+# the flight. Standby holds the station you'd switch to next.
+COM_ACTIVE_BY_PHASE = {
     "Parked": 121.900,    # Ground / Clearance
     "Taxi": 121.900,      # Ground
     "Takeoff": 118.300,   # Tower
@@ -46,7 +47,17 @@ COM1_BY_PHASE = {
     "Landing": 118.300,   # Tower
     "Rollout": 121.900,   # Ground
 }
-COM2_GUARD_MHZ = 121.500  # emergency guard, kept on the standby radio
+COM_STANDBY_BY_PHASE = {
+    "Parked": 118.300,    # Tower next
+    "Taxi": 118.300,      # Tower
+    "Takeoff": 124.350,   # Departure
+    "Climb": 132.150,     # Center
+    "Cruise": 119.100,    # Approach next
+    "Descent": 119.100,   # Approach
+    "Approach": 118.300,  # Tower
+    "Landing": 121.900,   # Ground
+    "Rollout": 121.900,   # Ground
+}
 
 CRUISE_ALT_FT = 35000.0
 CRUISE_IAS_KT = 280.0
@@ -177,7 +188,8 @@ class DummyFlight:
 
         flight_active = not on_ground
 
-        com1_active = COM1_BY_PHASE.get(phase, 121.900)
+        com_active = COM_ACTIVE_BY_PHASE.get(phase, 121.900)
+        com_standby = COM_STANDBY_BY_PHASE.get(phase, 121.500)
         squawk = 2000 if on_ground else 4677
 
         raw = {
@@ -196,9 +208,8 @@ class DummyFlight:
             "flaps_index": int(flaps),
             "parking_brake": parking_brake,
             "autopilot_master": phase in ("Climb", "Cruise", "Descent"),
-            "com1_active_mhz": com1_active,
-            "com1_standby_mhz": COM2_GUARD_MHZ,
-            "com2_active_mhz": COM2_GUARD_MHZ,
+            "com_active_frequency": com_active,
+            "com_standby_frequency": com_standby,
             "transponder_code": squawk,
         }
 

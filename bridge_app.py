@@ -334,6 +334,27 @@ class BridgeApi:
 
 
 ICON_PNG = WEB_DIR / "assets" / "icon.png"
+APP_NAME = "OpenSquawk Bridge"
+
+
+def _apply_macos_app_name() -> None:
+    """Show our name in the macOS menu bar / dock instead of 'Python'.
+
+    When running from source the process is `python`, so macOS labels the app
+    menu and dock as 'Python'. Overriding CFBundleName on the main bundle fixes
+    it. The packaged .app already carries the right name via its Info.plist.
+    """
+    if sys.platform != "darwin":
+        return
+    try:
+        from Foundation import NSBundle  # provided by pyobjc
+
+        bundle = NSBundle.mainBundle()
+        info = bundle.localizedInfoDictionary() or bundle.infoDictionary()
+        if info is not None:
+            info["CFBundleName"] = APP_NAME
+    except Exception as exc:  # pragma: no cover - platform/optional dependent
+        print(f"[name] could not set macOS app name: {exc}")
 
 
 def _apply_runtime_icon(*_args) -> None:
@@ -373,6 +394,7 @@ def _apply_runtime_icon(*_args) -> None:
 
 
 def main() -> None:
+    _apply_macos_app_name()  # set the app/menu name before the UI builds its menu
     api = BridgeApi()
     index = WEB_DIR / "index.html"
     window = webview.create_window(

@@ -7,3 +7,7 @@ pynput>=1.7
 # has no cp314 wheel, so it tries to compile from source on Python 3.14 and the
 # build fails. Both are optional — the app disables joystick PTT if absent.
 pygame-ce>=2.5
+# SimConnect: pure-python wrapper around MSFS's SimConnect.dll. Installs on any
+# OS (pure python); the DLL only loads at runtime on Windows when MSFS runs.
+# Imported lazily in msfs_source so non-Windows / no-sim machines are unaffected.
+SimConnect>=0.4.26

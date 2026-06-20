@@ -30,6 +30,8 @@ def normalize_step(step: dict) -> dict:
             raise ValueError("key step needs at least one key")
         return {"type": "key", "keys": keys}
     if kind == "click":
+        if "x" not in step or "y" not in step:
+            raise ValueError("click step needs x and y")
         button = step.get("button", "left")
         if button not in BUTTONS:
             button = "left"
@@ -96,6 +98,7 @@ class PynputBackend:
     module never requires pynput (tests use FakeBackend instead)."""
 
     KEY_HOLD = 0.03  # seconds a key is held before release
+    CLICK_SETTLE = 0.02  # seconds to let the cursor settle before clicking
 
     def __init__(self):
         from pynput import keyboard, mouse
@@ -113,7 +116,7 @@ class PynputBackend:
 
     def click(self, x, y, button):
         self._mouse.position = (x, y)
-        time.sleep(0.02)
+        time.sleep(self.CLICK_SETTLE)
         self._mouse.click(getattr(self._Button, button, self._Button.left))
 
     def sleep(self, seconds):

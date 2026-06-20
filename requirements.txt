@@ -2,4 +2,8 @@ pywebview>=5.0
 requests>=2.31
 qrcode>=7.4
 pynput>=1.7
-pygame>=2.5
+# pygame-ce (community edition): drop-in for pygame (`import pygame` unchanged),
+# but ships prebuilt wheels for new Python versions much sooner. Classic pygame
+# has no cp314 wheel, so it tries to compile from source on Python 3.14 and the
+# build fails. Both are optional — the app disables joystick PTT if absent.
+pygame-ce>=2.5

@@ -102,14 +102,26 @@ class FlightState:
     phase: str
     progress: float
     flight_active: bool
+    aircraft: str | None = None
+    connected: bool = True
 
 
 class DummyFlight:
     """Stateful animated flight. Call `sample()` on each stream tick."""
 
+    id = "dummy"
+    AIRCRAFT = "Dummy A320"
+
     def __init__(self, loop_seconds: float = LOOP_SECONDS) -> None:
         self.loop_seconds = loop_seconds
         self._t0 = time.monotonic()
+
+    def open(self) -> None:
+        """Begin a fresh flight loop (matches FlightSource.open)."""
+        self.reset()
+
+    def close(self) -> None:
+        """No external resource to release."""
 
     def reset(self) -> None:
         self._t0 = time.monotonic()
@@ -249,4 +261,6 @@ class DummyFlight:
             phase=phase,
             progress=round(p, 4),
             flight_active=flight_active,
+            aircraft=self.AIRCRAFT,
+            connected=True,
         )

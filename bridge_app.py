@@ -271,6 +271,7 @@ class BridgeApi:
             with self._lock:
                 self.flight_active = False
             self._report_status(sim_connected=False, flight_active=False)
+            self._maybe_autorun(connected=False, aircraft=None)
             return
         with self._lock:
             self.last_telemetry = sample.raw
@@ -280,6 +281,7 @@ class BridgeApi:
             self.aircraft = sample.aircraft
 
         self._report_status(sim_connected=True, flight_active=sample.flight_active)
+        self._maybe_autorun(connected=sample.connected, aircraft=sample.aircraft)
 
         # stream telemetry
         try:
@@ -693,6 +695,50 @@ class BridgeApi:
     def actions_set_autorun(self, on: bool) -> dict:
         self.actions_autorun = bool(on)
         self._update_config(actions_autorun=self.actions_autorun)
+        return {"ok": True}
+
+    def _maybe_autorun(self, *, connected: bool, aircraft) -> None:
+        """Fire the chain once when a new flight session is detected
+        (sim connected + aircraft loaded). Re-arms when the session drops."""
+        session_live = bool(connected and aircraft)
+        if not session_live:
+            self._session_armed = False
+            return
+        if self._session_armed:
+            return
+        self._session_armed = True
+        if self.actions_autorun and self.actions_steps and not self._actions_running:
+            self._run_actions_async("auto")
+
+    def _run_actions_async(self, reason: str) -> None:
+        threading.Thread(target=self._run_actions, args=(reason,), daemon=True).start()
+
+    def _run_actions(self, reason: str) -> None:
+        if self._actions_running:
+            return
+        self._actions_running = True
+        try:
+            if self._actions_backend is None:
+                self._actions_backend = actions.PynputBackend()
+            steps = list(self.actions_steps)
+            actions.run_steps(
+                steps, self._actions_backend, should_stop=lambda: not self._actions_running
+            )
+        except Exception as exc:  # pragma: no cover - real-input path
+            print(f"[actions] run failed ({exc.__class__.__name__}: {exc})")
+        finally:
+            self._actions_running = False
+
+    def actions_run_now(self) -> dict:
+        if self._actions_running:
+            return {"ok": False, "error": "already running"}
+        if not self.actions_steps:
+            return {"ok": False, "error": "no steps"}
+        self._run_actions_async("manual")
+        return {"ok": True}
+
+    def actions_stop(self) -> dict:
+        self._actions_running = False
         return {"ok": True}
 
     def get_state(self) -> dict:

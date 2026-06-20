@@ -446,7 +446,8 @@ class BridgeApi:
         if self._point_in_app_window(x, y):
             return
         name = getattr(button, "name", "left")
-        self._record_events.append((time.time(), {"type": "click", "x": int(x), "y": int(y), "button": name}))
+        with self._lock:
+            self._record_events.append((time.time(), {"type": "click", "x": int(x), "y": int(y), "button": name}))
 
     def _point_in_app_window(self, x, y) -> bool:
         # Best-effort: we cannot reliably get the pywebview window bounds across
@@ -470,7 +471,8 @@ class BridgeApi:
             return
 
         if self._actions_recording and self._capturing is None and identity:
-            self._record_events.append((time.time(), {"type": "key", "keys": [identity]}))
+            with self._lock:
+                self._record_events.append((time.time(), {"type": "key", "keys": [identity]}))
 
         if identity:
             self._pressed.add(identity)
@@ -660,6 +662,16 @@ class BridgeApi:
                 print(f"[ptt] could not open settings ({exc})")
         return {"ok": True}
 
+    def _reset_actions_runtime(self) -> None:
+        """Stop any in-flight run/recording and disarm autorun. Used when the
+        session changes (logout / source switch) so a chain can't keep firing
+        input or recording into the next session."""
+        self._actions_running = False      # signals the runner thread to stop
+        self._actions_recording = False
+        with self._lock:
+            self._record_events = []
+        self._session_armed = False
+
     def logout(self) -> dict:
         """Local logout: stop streaming, forget connection, issue a new code.
 
@@ -675,6 +687,7 @@ class BridgeApi:
             self.user = None
             self.last_data_ok_at = None
             self.last_telemetry = None
+        self._reset_actions_runtime()
         if src is not None:
             try:
                 src.close()
@@ -733,6 +746,7 @@ class BridgeApi:
             self.error = None
             self.last_telemetry = None
             self.last_data_ok_at = None
+        self._reset_actions_runtime()
         return {"ok": True, "source_id": source_id}
 
     # ---- flight actions ----------------------------------------------------
@@ -828,6 +842,7 @@ class BridgeApi:
     def _run_actions(self, reason: str) -> None:
         if not self._begin_actions():
             return
+        print(f"[actions] running chain ({reason}, {len(self.actions_steps)} steps)")
         try:
             if self._actions_backend is None:
                 self._actions_backend = actions.PynputBackend()

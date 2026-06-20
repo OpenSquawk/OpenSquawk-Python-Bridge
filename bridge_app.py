@@ -106,13 +106,16 @@ class BridgeApi:
             legacy = cfg.get("ptt_key")
             trigger = {"type": "keys", "keys": [legacy]} if isinstance(legacy, str) else None
         self.trigger: dict | None = trigger
-        self._capturing: str | None = None   # 'key' | 'joy' while the UI is binding
+        # while the UI is binding a trigger: {"slot": "ptt"|"actions",
+        # "kind": "key"|"joy"} or None when idle.
+        self._capturing: dict | None = None
         self._capture_keys: list[str] = []    # keys held so far during a combo bind
         self._pressed: set[str] = set()        # keys currently down (for combo match)
         self._ptt_active = False               # transmitting right now (live state)
         self.ptt_supported = False             # keyboard listener running
         self.ptt_joy_supported = False         # joystick listener running
         self._kb_listener = None
+        self._mouse_listener = None            # pynput mouse listener (recording)
 
         # flight-action chain (see actions.py). Persisted in config.json.
         try:
@@ -161,6 +164,7 @@ class BridgeApi:
         threading.Thread(target=self._stream_loop, daemon=True).start()
         self._start_ptt_listener()
         self._start_joystick_listener()
+        self._start_mouse_listener()
 
     # ---- persistence -------------------------------------------------------
 
@@ -369,6 +373,15 @@ class BridgeApi:
             return f"{trig.get('joy', 'Joystick')} · Button {trig.get('button')}"
         return "Not set"
 
+    def _store_trigger(self, slot: str, trig: dict) -> None:
+        """Persist a freshly captured trigger into the right slot."""
+        if slot == "ptt":
+            self.trigger = trig
+            self._update_config(ptt_trigger=trig)
+        else:
+            self.actions_trigger = trig
+            self._update_config(actions_trigger=trig)
+
     def _fire(self, down: bool) -> None:
         """Edge-triggered PTT, shared by keyboard and joystick paths."""
         if down and not self._ptt_active:
@@ -404,10 +417,48 @@ class BridgeApi:
             except Exception:
                 pass
 
+    # -- mouse (pynput) — only used while recording actions --
+
+    def _start_mouse_listener(self) -> None:
+        try:
+            from pynput import mouse
+        except Exception as exc:  # pragma: no cover - optional dependency
+            print(f"[actions] pynput mouse unavailable ({exc})")
+            return
+        try:
+            self._mouse_listener = mouse.Listener(on_click=self._on_mouse_click)
+            self._mouse_listener.daemon = True
+            self._mouse_listener.start()
+        except Exception as exc:  # pragma: no cover - platform dependent
+            print(f"[actions] could not start mouse listener ({exc})")
+
+    def _stop_mouse_listener(self) -> None:
+        ml = getattr(self, "_mouse_listener", None)
+        if ml is not None:
+            try:
+                ml.stop()
+            except Exception:
+                pass
+
+    def _on_mouse_click(self, x, y, button, pressed) -> None:
+        if not (self._actions_recording and pressed):
+            return
+        if self._point_in_app_window(x, y):
+            return
+        name = getattr(button, "name", "left")
+        self._record_events.append((time.time(), {"type": "click", "x": int(x), "y": int(y), "button": name}))
+
+    def _point_in_app_window(self, x, y) -> bool:
+        # Best-effort: we cannot reliably get the pywebview window bounds across
+        # platforms, so we never claim a point is inside. Documented limitation —
+        # a stray click on our own window may be recorded and can be deleted in
+        # the UI. Returns False when it cannot tell.
+        return False
+
     def _on_key_press(self, key) -> None:
         identity = self._key_identity(key)
 
-        if self._capturing == "key":
+        if self._capturing and self._capturing["kind"] == "key":
             if identity == "key:esc":
                 self._capturing = None
                 self._capture_keys = []
@@ -417,18 +468,21 @@ class BridgeApi:
                 self._capture_keys.append(identity)
             return
 
+        if self._actions_recording and self._capturing is None and identity:
+            self._record_events.append((time.time(), {"type": "key", "keys": [identity]}))
+
         if identity:
             self._pressed.add(identity)
         self._eval_key_trigger()
 
     def _on_key_release(self, key) -> None:
-        if self._capturing == "key":
+        if self._capturing and self._capturing["kind"] == "key":
             if self._capture_keys:
-                self.trigger = {"type": "keys", "keys": sorted(self._capture_keys)}
+                slot = self._capturing["slot"]
+                self._store_trigger(slot, {"type": "keys", "keys": sorted(self._capture_keys)})
                 self._capturing = None
                 self._capture_keys = []
                 self._pressed.clear()
-                self._update_config(ptt_trigger=self.trigger)
             return
 
         identity = self._key_identity(key)
@@ -438,13 +492,20 @@ class BridgeApi:
 
     def _eval_key_trigger(self) -> None:
         trig = self.trigger
-        if not trig or trig.get("type") != "keys":
-            return
-        keys = set(trig.get("keys") or [])
-        if keys and keys <= self._pressed:
-            self._fire(True)
-        elif self._ptt_active and not (keys <= self._pressed):
-            self._fire(False)
+        if trig and trig.get("type") == "keys":
+            keys = set(trig.get("keys") or [])
+            if keys and keys <= self._pressed:
+                self._fire(True)
+            elif self._ptt_active and not (keys <= self._pressed):
+                self._fire(False)
+
+        at = self.actions_trigger
+        if at and at.get("type") == "keys":
+            akeys = set(at.get("keys") or [])
+            now_down = bool(akeys) and akeys <= self._pressed
+            if now_down and not self._actions_combo_down:
+                self._run_actions_async("hotkey")
+            self._actions_combo_down = now_down
 
     # -- joystick / HOTAS (pygame) --
 
@@ -504,16 +565,22 @@ class BridgeApi:
         except Exception:
             pass
 
-        if self._capturing == "joy":
+        if self._capturing and self._capturing["kind"] == "joy":
             if down and button is not None:
-                self.trigger = {"type": "joy", "joy": name, "button": button}
+                self._store_trigger(
+                    self._capturing["slot"],
+                    {"type": "joy", "joy": name, "button": button},
+                )
                 self._capturing = None
-                self._update_config(ptt_trigger=self.trigger)
             return
 
         trig = self.trigger
         if trig and trig.get("type") == "joy" and trig.get("button") == button:
             self._fire(down)
+
+        at = self.actions_trigger
+        if at and at.get("type") == "joy" and at.get("button") == button and down:
+            self._run_actions_async("hotkey")
 
     # -- send --
 
@@ -555,12 +622,12 @@ class BridgeApi:
     def ptt_capture_key(self) -> dict:
         """Arm capture: the next key (or held combo) becomes the PTT trigger."""
         self._capture_keys = []
-        self._capturing = "key"
+        self._capturing = {"slot": "ptt", "kind": "key"}
         return {"ok": True}
 
     def ptt_capture_joy(self) -> dict:
         """Arm capture: the next joystick button press becomes the PTT trigger."""
-        self._capturing = "joy"
+        self._capturing = {"slot": "ptt", "kind": "joy"}
         return {"ok": True}
 
     def ptt_cancel_capture(self) -> dict:
@@ -698,6 +765,36 @@ class BridgeApi:
         self._update_config(actions_autorun=self.actions_autorun)
         return {"ok": True}
 
+    def actions_capture_trigger(self, kind: str) -> dict:
+        """Arm capture of the actions hotkey ('key' combo or 'joy' button)."""
+        self._capture_keys = []
+        self._capturing = {"slot": "actions", "kind": kind}
+        return {"ok": True}
+
+    def actions_clear_trigger(self) -> dict:
+        """Unbind the actions hotkey."""
+        self.actions_trigger = None
+        self._actions_combo_down = False
+        self._update_config(actions_trigger=None)
+        return {"ok": True}
+
+    def actions_record_start(self) -> dict:
+        """Begin capturing global key/click input into the recording buffer."""
+        self._record_events = []
+        self._actions_recording = True
+        return {"ok": True}
+
+    def actions_record_stop(self) -> dict:
+        """Stop recording and append the captured steps to the chain."""
+        self._actions_recording = False
+        new = actions.record_to_steps(self._record_events)
+        if new:
+            with self._lock:
+                self.actions_steps.extend(new)
+            self._save_actions_steps()
+        self._record_events = []
+        return {"ok": True, "steps": self.actions_steps}
+
     def _maybe_autorun(self, *, connected: bool, aircraft) -> None:
         """Fire the chain once when a new flight session is detected
         (sim connected + aircraft loaded). Re-arms when the session drops."""
@@ -772,7 +869,8 @@ class BridgeApi:
                 "base_url": BASE_URL,
                 "ptt_key_label": self._trigger_label(self.trigger),
                 "ptt_set": self.trigger is not None,
-                "ptt_capturing": self._capturing,
+                "ptt_capturing": (self._capturing["kind"] if (self._capturing and self._capturing["slot"] == "ptt") else None),
+                "actions_capturing": (self._capturing["kind"] if (self._capturing and self._capturing["slot"] == "actions") else None),
                 "ptt_active": self._ptt_active,
                 "ptt_supported": self.ptt_supported,
                 "ptt_joy_supported": self.ptt_joy_supported,
@@ -990,6 +1088,7 @@ def _run() -> None:
     def _on_closing():
         api._stop.set()
         api._stop_ptt_listener()
+        api._stop_mouse_listener()
 
     window.events.closing += _on_closing
     window.events.shown += _apply_runtime_icon  # set the icon once the UI is up

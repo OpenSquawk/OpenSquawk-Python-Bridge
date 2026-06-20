@@ -145,19 +145,38 @@
         </button>
 
         <div id="tele-body" class="collapse-body hidden">
-          <div class="metrics">
-            <div class="metric"><span class="m-val" id="m-ias">0</span><span class="m-lab">IAS · kt</span></div>
-            <div class="metric"><span class="m-val" id="m-alt">0</span><span class="m-lab">ALT · ft</span></div>
-            <div class="metric"><span class="m-val" id="m-vs">0</span><span class="m-lab">V/S · fpm</span></div>
-            <div class="metric"><span class="m-val" id="m-n1">0</span><span class="m-lab">N1 · %</span></div>
-            <div class="metric"><span class="m-val" id="m-gear">—</span><span class="m-lab">Gear</span></div>
-            <div class="metric"><span class="m-val" id="m-flaps">0</span><span class="m-lab">Flaps</span></div>
-            <div class="metric"><span class="m-val m-freq" id="m-coma">—</span><span class="m-lab">COM Act · MHz</span></div>
-            <div class="metric"><span class="m-val m-freq" id="m-coms">—</span><span class="m-lab">COM Stby · MHz</span></div>
-            <div class="metric"><span class="m-val" id="m-sqwk">—</span><span class="m-lab">Squawk</span></div>
-            <div class="metric"><span class="m-val m-freq" id="m-lat">—</span><span class="m-lab">Latitude</span></div>
-            <div class="metric"><span class="m-val m-freq" id="m-lon">—</span><span class="m-lab">Longitude</span></div>
-            <div class="metric"><span class="m-val" id="m-hdg">—</span><span class="m-lab">HDG · °</span></div>
+          <div class="tele">
+            <section class="tele-sec">
+              <h4 class="tele-h">Flight</h4>
+              <div class="tele-row tele-row-5">
+                <div class="cell"><span class="cv" id="m-ias">0</span><span class="cl">IAS·kt</span></div>
+                <div class="cell"><span class="cv" id="m-alt">0</span><span class="cl">ALT·ft</span></div>
+                <div class="cell"><span class="cv" id="m-vs">0</span><span class="cl">V/S·fpm</span></div>
+                <div class="cell"><span class="cv" id="m-n1">0</span><span class="cl">N1·%</span></div>
+                <div class="cell"><span class="cv" id="m-hdg">—</span><span class="cl">HDG</span></div>
+              </div>
+            </section>
+
+            <section class="tele-sec">
+              <h4 class="tele-h">Radio</h4>
+              <div class="tele-row tele-row-3">
+                <div class="cell"><span class="cv cv-sm" id="m-coma">—</span><span class="cl">COM Act·MHz</span></div>
+                <div class="cell"><span class="cv cv-sm" id="m-coms">—</span><span class="cl">COM Stby·MHz</span></div>
+                <div class="cell"><span class="cv" id="m-sqwk">—</span><span class="cl">Squawk</span></div>
+              </div>
+            </section>
+
+            <section class="tele-sec">
+              <h4 class="tele-h">Config &amp; position</h4>
+              <div class="tele-row tele-row-cfg">
+                <div class="cell"><span class="cv" id="m-gear">—</span><span class="cl">Gear</span></div>
+                <div class="cell"><span class="cv" id="m-flaps">0</span><span class="cl">Flaps</span></div>
+                <div class="cell cell-pos">
+                  <span class="cv cv-sm"><span id="m-lat">—</span>, <span id="m-lon">—</span></span>
+                  <span class="cl">Position · lat / lon</span>
+                </div>
+              </div>
+            </section>
           </div>
 
           <div class="profile">

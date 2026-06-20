@@ -421,32 +421,72 @@ html, body {
 .collapse-head[aria-expanded="true"] .chevron { transform: rotate(180deg); }
 .collapse-body { margin-top: 14px; }
 
-/* metrics */
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+/* telemetry — grouped instrument readout */
+.tele {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
   margin-bottom: 14px;
 }
-.metric {
-  background: rgba(8, 19, 32, 0.55);
+.tele-h {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 6px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--cyan);
+}
+.tele-h::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--panel-line), transparent);
+}
+/* one bordered block per group; 1px gap on the line-colored bg draws the
+   hairline dividers between cells (no per-cell borders). */
+.tele-row {
+  display: grid;
+  gap: 1px;
+  background: var(--panel-line);
   border: 1px solid var(--panel-line);
   border-radius: 10px;
-  padding: 11px 6px;
-  text-align: center;
+  overflow: hidden;
 }
-.m-val {
-  display: block;
-  font-size: 20px;
+.tele-row-5 { grid-template-columns: repeat(5, 1fr); }
+.tele-row-3 { grid-template-columns: repeat(3, 1fr); }
+.tele-row-cfg { grid-template-columns: 1fr 1fr 2.1fr; }
+.cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 6px;
+  background: rgba(8, 19, 32, 0.72);
+}
+.cell-pos {
+  align-items: flex-start;
+  justify-content: center;
+  text-align: left;
+  padding-left: 11px;
+}
+.cv {
+  font-size: 17px;
   font-weight: 800;
+  line-height: 1;
   color: var(--cyan-bright);
   font-variant-numeric: tabular-nums;
 }
-.m-val.m-freq { font-size: 17px; letter-spacing: 0.3px; }
-.m-lab {
-  display: block; margin-top: 3px;
-  font-size: 9.5px; letter-spacing: 0.8px;
-  color: var(--muted-2); text-transform: uppercase;
+.cv-sm { font-size: 13.5px; letter-spacing: 0.3px; }
+.cl {
+  font-size: 8.5px;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  white-space: nowrap;
 }
 
 /* flight profile */

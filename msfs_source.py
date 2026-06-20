@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import math
 import sys
+import time
 
-# SimConnect "VERTICAL SPEED" comes through Python-SimConnect in feet/second;
-# the app streams feet/minute. (Verify on Windows — if already fpm, set to 1.0.)
-VS_FT_PER_S_TO_FPM = 60.0
+# Python-SimConnect returns VERTICAL SPEED already in feet/minute.
+VS_FT_PER_S_TO_FPM = 1.0
 
 
 def classify_aircraft(title: str) -> str:
@@ -75,8 +75,8 @@ def map_simvars(s: dict) -> dict:
         "flaps_index": int(round(float(s["flaps_index"]))),
         "parking_brake": bool(s["parking_brake"]),
         "autopilot_master": bool(s["autopilot_master"]),
-        "com_active_frequency": round(float(s["com_active_hz"]) / 1e6, 3),
-        "com_standby_frequency": round(float(s["com_standby_hz"]) / 1e6, 3),
+        "com_active_frequency": round(float(s["com_active_mhz"]), 3),
+        "com_standby_frequency": round(float(s["com_standby_mhz"]), 3),
         "transponder_code": _bcd16_to_int(s["transponder_bcd16"]),
         "latitude_deg": round(math.degrees(float(s["plane_latitude"])), 6),
         "longitude_deg": round(math.degrees(float(s["plane_longitude"])), 6),
@@ -177,8 +177,8 @@ _SIMVAR_KEYS = {
     "flaps_index": "FLAPS_HANDLE_INDEX",
     "parking_brake": "BRAKE_PARKING_POSITION",
     "autopilot_master": "AUTOPILOT_MASTER",
-    "com_active_hz": "COM_ACTIVE_FREQUENCY:1",
-    "com_standby_hz": "COM_STANDBY_FREQUENCY:1",
+    "com_active_mhz": "COM_ACTIVE_FREQUENCY:1",
+    "com_standby_mhz": "COM_STANDBY_FREQUENCY:1",
     "transponder_bcd16": "TRANSPONDER_CODE:1",
     "plane_latitude": "PLANE_LATITUDE",
     "plane_longitude": "PLANE_LONGITUDE",
@@ -196,6 +196,7 @@ class MsfsSource:
         self._aq = None          # AircraftRequests
         self._connected = False
         self._phase = PhaseEstimator()
+        self._reconnect_after: float = 0.0  # monotonic time before which reconnect is skipped
 
     def open(self) -> None:
         """Connect to a running MSFS. Raises on failure (sim not running, no DLL)."""
@@ -232,11 +233,19 @@ class MsfsSource:
 
     def sample(self) -> "FlightState | None":
         if not self._connected:
-            return None
+            if time.monotonic() < self._reconnect_after:
+                return None
+            try:
+                self.close()
+                self.open()
+            except Exception:
+                self._reconnect_after = time.monotonic() + 5.0
+                return None
         try:
             native, title = self.read_raw()
         except Exception:
             self._connected = False
+            self._reconnect_after = time.monotonic() + 5.0
             return None
         raw = map_simvars(native)
         phase, progress = self._phase.update(

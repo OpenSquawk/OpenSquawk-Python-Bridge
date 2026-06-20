@@ -8,7 +8,7 @@ def _sample_native():
         "airspeed_indicated": 280.0,      # knots
         "airspeed_true": 285.0,           # knots
         "ground_velocity": 300.0,         # knots
-        "vertical_speed": 20.0,           # feet/second (native) -> *60 = 1200 fpm
+        "vertical_speed": 1200.0,          # feet/minute (Python-SimConnect native)
         "indicated_altitude": 35000.0,    # feet
         "plane_altitude": 35010.0,        # feet
         "plane_pitch": -0.05236,          # radians, nose-up negative -> +3.0 deg
@@ -20,8 +20,8 @@ def _sample_native():
         "flaps_index": 2.0,
         "parking_brake": 0.0,
         "autopilot_master": 1.0,
-        "com_active_hz": 124350000.0,     # Hz -> 124.35 MHz
-        "com_standby_hz": 121900000.0,    # Hz -> 121.90 MHz
+        "com_active_mhz": 124.35,         # MHz (Python-SimConnect returns MHz directly)
+        "com_standby_mhz": 121.9,         # MHz
         "transponder_bcd16": 0x4677,      # BCD -> 4677
         "plane_latitude": math.radians(37.6213),
         "plane_longitude": math.radians(-122.3790),
@@ -32,7 +32,7 @@ def _sample_native():
 def test_map_simvars_units():
     raw = map_simvars(_sample_native())
     assert raw["ias_kt"] == 280.0
-    assert raw["vertical_speed_fpm"] == 1200.0
+    assert raw["vertical_speed_fpm"] == 1200.0   # ft/min passthrough, no conversion
     assert raw["altitude_ft_indicated"] == 35000.0
     assert raw["com_active_frequency"] == 124.35
     assert raw["com_standby_frequency"] == 121.9

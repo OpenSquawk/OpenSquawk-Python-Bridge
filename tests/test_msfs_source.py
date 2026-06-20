@@ -16,7 +16,7 @@ def test_sample_returns_mapped_state(monkeypatch):
         "plane_pitch": 0.0, "eng_n1_1": 80.0, "eng_n1_2": 80.0, "eng_combustion": 1.0,
         "sim_on_ground": 0.0, "gear_handle": 0.0, "flaps_index": 0.0,
         "parking_brake": 0.0, "autopilot_master": 1.0,
-        "com_active_hz": 122800000.0, "com_standby_hz": 121500000.0,
+        "com_active_mhz": 122.8, "com_standby_mhz": 121.5,
         "transponder_bcd16": 0x2000, "plane_latitude": 0.0, "plane_longitude": 0.0,
         "plane_heading_true": 0.0,
     }

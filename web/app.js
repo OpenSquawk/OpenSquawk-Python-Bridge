@@ -157,6 +157,53 @@ function renderPtt(state) {
   $("ptt-perm").classList.toggle("hidden", !(state.ptt_is_mac && state.ptt_set));
 }
 
+function stepLabel(s) {
+  if (s.type === "wait") return `Wait ${s.seconds}s`;
+  if (s.type === "key") return `Key ${s.keys.join(" + ")}`;
+  if (s.type === "click") return `Click ${s.button} @ ${s.x},${s.y}`;
+  return s.type;
+}
+
+let actStepsSig = "";
+function renderActions(state) {
+  const steps = state.actions_steps || [];
+  const sig = JSON.stringify(steps);
+  if (sig !== actStepsSig) {
+    actStepsSig = sig;
+    const list = $("act-steps");
+    list.innerHTML = "";
+    steps.forEach((s, i) => {
+      const li = document.createElement("li");
+      li.className = "act-step";
+      const span = document.createElement("span");
+      span.textContent = stepLabel(s);
+      const del = document.createElement("button");
+      del.className = "act-del"; del.textContent = "✕"; del.dataset.i = i;
+      li.append(span, del);
+      list.appendChild(li);
+    });
+  }
+
+  const recording = state.actions_recording;
+  const running = state.actions_running;
+  $("act-record").textContent = recording ? "Stop recording" : "Record";
+  $("act-record").classList.toggle("btn-ghost", recording);
+  $("act-run").textContent = running ? "Stop" : "Run now";
+  $("act-clear").classList.toggle("hidden", steps.length === 0);
+
+  setText("act-trigger", state.actions_capturing
+    ? (state.actions_capturing === "joy" ? "Press a joystick button…" : "Press a key or combo…")
+    : state.actions_trigger_label);
+  $("act-clear-trigger").classList.toggle("hidden", !state.actions_trigger_set);
+  $("act-autorun").checked = !!state.actions_autorun;
+
+  const tag = $("act-tag");
+  if (running) { tag.textContent = "RUN"; tag.className = "tag tag-tx"; }
+  else if (recording) { tag.textContent = "REC"; tag.className = "tag tag-amber"; }
+  else if (state.actions_trigger_set || state.actions_autorun) { tag.textContent = "ARMED"; tag.className = "tag tag-green"; }
+  else { tag.textContent = "OFF"; tag.className = "tag tag-grey"; }
+}
+
 // ---- main render -----------------------------------------------------------
 
 function render(state) {
@@ -209,6 +256,7 @@ function render(state) {
     updatePlane(state.flight_progress || 0, state.flight_phase || "Parked");
 
     renderPtt(state);
+    renderActions(state);
   } else {
     connPill.textContent = "Not linked";
     connPill.className = "pill pill-muted";
@@ -253,6 +301,9 @@ function wireEvents() {
     teleOpen = false;
     $("tele-body").classList.add("hidden");
     $("tele-head").setAttribute("aria-expanded", "false");
+    actStepsSig = "";   // force the step list to re-render after token rotation
+    $("act-body").classList.add("hidden");
+    $("act-head").setAttribute("aria-expanded", "false");
     simsSig = "";   // force the source dropdown to re-render after token rotation
     api().logout();
   });
@@ -270,6 +321,37 @@ function wireEvents() {
   $("ptt-perm-btn").addEventListener("click", () => api().open_input_monitoring());
   $("sim-select").addEventListener("change", (e) => api().set_source(e.target.value));
   $("tele-head").addEventListener("click", toggleTelemetry);
+
+  $("act-head").addEventListener("click", () => {
+    const open = !$("act-body").classList.toggle("hidden");
+    $("act-head").setAttribute("aria-expanded", String(open));
+  });
+  $("act-add-wait").addEventListener("click", () => {
+    const v = parseFloat(prompt("Wait seconds:", "1") || "");
+    if (!isNaN(v)) api().actions_add_step({ type: "wait", seconds: v });
+  });
+  $("act-add-click").addEventListener("click", () => {
+    const x = parseInt(prompt("Click X:", "0") || "", 10);
+    const y = parseInt(prompt("Click Y:", "0") || "", 10);
+    if (!isNaN(x) && !isNaN(y)) api().actions_add_step({ type: "click", x, y, button: "left" });
+  });
+  $("act-record").addEventListener("click", async () => {
+    const s = await api().get_state();
+    if (s.actions_recording) api().actions_record_stop();
+    else api().actions_record_start();
+  });
+  $("act-run").addEventListener("click", async () => {
+    const s = await api().get_state();
+    if (s.actions_running) api().actions_stop(); else api().actions_run_now();
+  });
+  $("act-clear").addEventListener("click", () => { if (confirm("Clear all steps?")) api().actions_clear(); });
+  $("act-steps").addEventListener("click", (e) => {
+    if (e.target.classList.contains("act-del")) api().actions_remove_step(parseInt(e.target.dataset.i, 10));
+  });
+  $("act-set-key").addEventListener("click", () => api().actions_capture_trigger("key"));
+  $("act-set-joy").addEventListener("click", () => api().actions_capture_trigger("joy"));
+  $("act-clear-trigger").addEventListener("click", () => api().actions_clear_trigger());
+  $("act-autorun").addEventListener("change", (e) => api().actions_set_autorun(e.target.checked));
 }
 
 window.addEventListener("pywebviewready", () => { apiReady = true; });

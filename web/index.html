@@ -134,6 +134,55 @@
         </div>
       </article>
 
+      <!-- Flight actions (collapsible) -->
+      <article class="panel">
+        <button class="panel-head collapse-head" id="act-head" aria-expanded="false">
+          <span class="panel-title">Flight actions</span>
+          <span class="head-right">
+            <span id="act-tag" class="tag tag-grey">OFF</span>
+            <span class="chevron" id="act-chevron">▾</span>
+          </span>
+        </button>
+
+        <div id="act-body" class="collapse-body hidden">
+          <p class="panel-text">
+            Replay a chain of key presses and clicks — automatically when a new
+            flight is detected, or with a hotkey. Clicks use absolute screen
+            positions, so keep the same window layout.
+          </p>
+
+          <ol id="act-steps" class="act-steps"></ol>
+
+          <div class="act-add">
+            <button id="act-add-wait" class="btn btn-small">+ Wait</button>
+            <button id="act-add-click" class="btn btn-small">+ Click</button>
+          </div>
+
+          <div class="ptt-actions">
+            <button id="act-record" class="btn btn-small">Record</button>
+            <button id="act-run" class="btn btn-small">Run now</button>
+            <button id="act-clear" class="btn btn-small btn-ghost hidden">Clear all</button>
+          </div>
+
+          <div class="row" style="margin-top:10px;">
+            <div class="row-text">
+              <div class="row-title">Hotkey trigger</div>
+              <div class="row-sub" id="act-trigger">Not set</div>
+            </div>
+            <div class="ptt-actions">
+              <button id="act-set-key" class="btn btn-small">Set key</button>
+              <button id="act-set-joy" class="btn btn-small">Set joystick</button>
+              <button id="act-clear-trigger" class="btn btn-small btn-ghost hidden">Clear</button>
+            </div>
+          </div>
+
+          <label class="act-auto">
+            <input type="checkbox" id="act-autorun" />
+            <span>Run automatically on new flight</span>
+          </label>
+        </div>
+      </article>
+
       <!-- Live telemetry (collapsible) -->
       <article class="panel">
         <button class="panel-head collapse-head" id="tele-head" aria-expanded="false">

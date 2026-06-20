@@ -458,7 +458,8 @@ class BridgeApi:
     def _on_key_press(self, key) -> None:
         identity = self._key_identity(key)
 
-        if self._capturing and self._capturing["kind"] == "key":
+        cap = self._capturing
+        if cap and cap["kind"] == "key":
             if identity == "key:esc":
                 self._capturing = None
                 self._capture_keys = []
@@ -476,9 +477,10 @@ class BridgeApi:
         self._eval_key_trigger()
 
     def _on_key_release(self, key) -> None:
-        if self._capturing and self._capturing["kind"] == "key":
+        cap = self._capturing
+        if cap and cap["kind"] == "key":
             if self._capture_keys:
-                slot = self._capturing["slot"]
+                slot = cap["slot"]
                 self._store_trigger(slot, {"type": "keys", "keys": sorted(self._capture_keys)})
                 self._capturing = None
                 self._capture_keys = []
@@ -565,10 +567,11 @@ class BridgeApi:
         except Exception:
             pass
 
-        if self._capturing and self._capturing["kind"] == "joy":
+        cap = self._capturing
+        if cap and cap["kind"] == "joy":
             if down and button is not None:
                 self._store_trigger(
-                    self._capturing["slot"],
+                    cap["slot"],
                     {"type": "joy", "joy": name, "button": button},
                 )
                 self._capturing = None
@@ -787,12 +790,14 @@ class BridgeApi:
     def actions_record_stop(self) -> dict:
         """Stop recording and append the captured steps to the chain."""
         self._actions_recording = False
-        new = actions.record_to_steps(self._record_events)
+        with self._lock:
+            events = self._record_events
+            self._record_events = []
+        new = actions.record_to_steps(events)
         if new:
             with self._lock:
                 self.actions_steps.extend(new)
             self._save_actions_steps()
-        self._record_events = []
         return {"ok": True, "steps": self.actions_steps}
 
     def _maybe_autorun(self, *, connected: bool, aircraft) -> None:

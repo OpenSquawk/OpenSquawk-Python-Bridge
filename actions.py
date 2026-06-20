@@ -12,6 +12,7 @@ import time
 from typing import Callable
 
 MAX_WAIT_SECONDS = 600.0
+WAIT_SLICE = 0.1  # seconds; granularity at which a wait step checks should_stop
 BUTTONS = {"left", "right", "middle"}
 
 
@@ -73,11 +74,26 @@ def run_steps(
             return
         kind = step["type"]
         if kind == "wait":
-            backend.sleep(step["seconds"])
+            _sleep_interruptible(backend, step["seconds"], should_stop)
         elif kind == "key":
             backend.send_keys(step["keys"])
         elif kind == "click":
             backend.click(step["x"], step["y"], step["button"])
+
+
+def _sleep_interruptible(backend, seconds, should_stop) -> None:
+    """Sleep `seconds`, but when `should_stop` is given, break it into WAIT_SLICE
+    chunks and bail out early if it returns True. Without should_stop, sleep once."""
+    if should_stop is None:
+        backend.sleep(seconds)
+        return
+    remaining = seconds
+    while remaining > 0:
+        if should_stop():
+            return
+        chunk = min(WAIT_SLICE, remaining)
+        backend.sleep(chunk)
+        remaining -= chunk
 
 
 # Map our key-identity strings (see BridgeApi._key_identity) to pynput keys.

@@ -33,3 +33,14 @@ def test_stop_flag_aborts_before_next_step():
     steps = [{"type": "key", "keys": ["char:a"]}, {"type": "key", "keys": ["char:b"]}]
     actions.run_steps(steps, be, should_stop=should_stop)
     assert be.calls == [("keys", ("char:a",))]
+
+
+def test_wait_interrupted_by_stop():
+    be = FakeBackend()
+    def should_stop():
+        return any(c[0] == "sleep" for c in be.calls)  # stop after the first slice
+    actions.run_steps(
+        [{"type": "wait", "seconds": 5}, {"type": "key", "keys": ["char:a"]}],
+        be, should_stop=should_stop,
+    )
+    assert be.calls == [("sleep", 0.1)]  # one slice, then aborted before the key

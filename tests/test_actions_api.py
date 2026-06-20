@@ -38,3 +38,16 @@ def test_set_autorun_persists(tmp_path, monkeypatch):
     api.actions_set_autorun(True)
     assert api.actions_autorun is True
     assert api._read_config()["actions_autorun"] is True
+
+
+def test_run_now_rejected_when_running(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    api.actions_steps = [{"type": "key", "keys": ["char:a"]}]
+    api._actions_running = True
+    assert api.actions_run_now()["ok"] is False
+
+
+def test_run_now_rejected_when_empty(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    api.actions_steps = []
+    assert api.actions_run_now()["ok"] is False

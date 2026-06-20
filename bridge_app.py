@@ -120,7 +120,8 @@ class BridgeApi:
         except Exception:
             self.actions_steps = []
         self.actions_autorun = bool(cfg.get("actions_autorun"))
-        self.actions_trigger = cfg.get("actions_trigger") if isinstance(cfg.get("actions_trigger"), dict) else None
+        _atrig = cfg.get("actions_trigger")
+        self.actions_trigger = _atrig if isinstance(_atrig, dict) else None
         self._actions_running = False
         self._actions_recording = False
         self._record_events: list = []
@@ -713,10 +714,18 @@ class BridgeApi:
     def _run_actions_async(self, reason: str) -> None:
         threading.Thread(target=self._run_actions, args=(reason,), daemon=True).start()
 
+    def _begin_actions(self) -> bool:
+        """Atomically claim the single action-runner slot. Returns False if a
+        chain is already running."""
+        with self._lock:
+            if self._actions_running:
+                return False
+            self._actions_running = True
+            return True
+
     def _run_actions(self, reason: str) -> None:
-        if self._actions_running:
+        if not self._begin_actions():
             return
-        self._actions_running = True
         try:
             if self._actions_backend is None:
                 self._actions_backend = actions.PynputBackend()
@@ -727,7 +736,8 @@ class BridgeApi:
         except Exception as exc:  # pragma: no cover - real-input path
             print(f"[actions] run failed ({exc.__class__.__name__}: {exc})")
         finally:
-            self._actions_running = False
+            with self._lock:
+                self._actions_running = False
 
     def actions_run_now(self) -> dict:
         if self._actions_running:

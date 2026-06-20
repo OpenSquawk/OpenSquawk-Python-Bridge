@@ -39,3 +39,19 @@ def normalize_step(step: dict) -> dict:
 
 def normalize_steps(steps: list) -> list[dict]:
     return [normalize_step(s) for s in (steps or [])]
+
+
+def record_to_steps(events: list[tuple[float, dict]], min_gap: float = 0.1) -> list[dict]:
+    """Turn (timestamp, step) events into a chain, inserting wait steps for the
+    gaps between them. Gaps below `min_gap` are dropped; others round to 0.1 s.
+    """
+    out: list[dict] = []
+    prev_ts: float | None = None
+    for ts, step in events:
+        if prev_ts is not None:
+            gap = ts - prev_ts
+            if gap >= min_gap:
+                out.append({"type": "wait", "seconds": round(gap, 1)})
+        out.append(normalize_step(step))
+        prev_ts = ts
+    return out

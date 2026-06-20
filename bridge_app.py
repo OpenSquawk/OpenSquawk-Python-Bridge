@@ -55,6 +55,7 @@ SOURCES = [
     {"id": "msfs2024", "label": "MSFS 2024"},
     {"id": "msfs2020", "label": "MSFS 2020", "coming_soon": True},
     {"id": "xplane", "label": "X-Plane", "coming_soon": True},
+    {"id": "flightgear", "label": "FlightGear", "coming_soon": True},
 ]
 
 WEB_DIR = _resource_dir() / "web"

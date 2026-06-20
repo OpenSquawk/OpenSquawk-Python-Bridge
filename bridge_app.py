@@ -840,9 +840,14 @@ def _run() -> None:
     window.events.closing += _on_closing
     window.events.shown += _apply_runtime_icon  # set the icon once the UI is up
 
-    # `icon` is honoured by the GTK/Qt backends; ignored (harmlessly) elsewhere.
+    # The GTK/Qt backends accept the PNG via `icon`. The WinForms backend, by
+    # contrast, feeds it to System.Drawing.Icon, which only accepts .ico — a .png
+    # raises ArgumentException on the GUI thread (unhandled, crashes startup). So
+    # skip `icon` on Windows: packaged builds get the window icon from the .exe
+    # (ExtractIconW) and _apply_runtime_icon covers the from-source case.
+    start_kwargs = {} if sys.platform.startswith("win") else {"icon": str(ICON_PNG)}
     try:
-        webview.start(icon=str(ICON_PNG))
+        webview.start(**start_kwargs)
     except TypeError:
         # older pywebview without the `icon` kwarg
         webview.start()

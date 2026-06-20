@@ -76,3 +76,45 @@ def run_steps(
             backend.send_keys(step["keys"])
         elif kind == "click":
             backend.click(step["x"], step["y"], step["button"])
+
+
+# Map our key-identity strings (see BridgeApi._key_identity) to pynput keys.
+def _to_pynput_key(identity: str):
+    from pynput import keyboard
+    kind, _, value = identity.partition(":")
+    if kind == "char":
+        return keyboard.KeyCode.from_char(value)
+    if kind == "vk":
+        return keyboard.KeyCode.from_vk(int(value))
+    if kind == "key":
+        return getattr(keyboard.Key, value, None)
+    return None
+
+
+class PynputBackend:
+    """Real key/mouse output via pynput Controllers. Lazy so importing this
+    module never requires pynput (tests use FakeBackend instead)."""
+
+    KEY_HOLD = 0.03  # seconds a key is held before release
+
+    def __init__(self):
+        from pynput import keyboard, mouse
+        self._kb = keyboard.Controller()
+        self._mouse = mouse.Controller()
+        self._Button = mouse.Button
+
+    def send_keys(self, keys):
+        resolved = [k for k in (_to_pynput_key(i) for i in keys) if k is not None]
+        for k in resolved:
+            self._kb.press(k)
+        time.sleep(self.KEY_HOLD)
+        for k in reversed(resolved):
+            self._kb.release(k)
+
+    def click(self, x, y, button):
+        self._mouse.position = (x, y)
+        time.sleep(0.02)
+        self._mouse.click(getattr(self._Button, button, self._Button.left))
+
+    def sleep(self, seconds):
+        time.sleep(seconds)

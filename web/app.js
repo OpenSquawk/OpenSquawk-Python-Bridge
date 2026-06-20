@@ -7,7 +7,6 @@ const PHASES = [
 ];
 
 let apiReady = false;
-let simsRendered = false;
 let qrRendered = false;
 let teleOpen = false;        // live telemetry collapsed by default
 let loginClicked = false;    // show the waiting indicator after the user starts login
@@ -76,19 +75,22 @@ function updatePlane(progress, phase) {
 
 // ---- rendering helpers -----------------------------------------------------
 
+let simsSig = "";
 function renderSimulators(state) {
-  if (simsRendered) return;
+  const sources = state.sources || [];
+  const sig = JSON.stringify(sources.map((s) => [s.id, s.available])) + "|" + state.source_id;
+  if (sig === simsSig) return;            // only re-render on real change
+  simsSig = sig;
   const sel = $("sim-select");
   sel.innerHTML = "";
-  state.simulators.forEach((s) => {
+  sources.forEach((s) => {
     const opt = document.createElement("option");
     opt.value = s.id;
     opt.textContent = s.available ? s.label : `${s.label} (coming soon)`;
     opt.disabled = !s.available;
-    if (s.id === state.simulator_id) opt.selected = true;
+    if (s.id === state.source_id) opt.selected = true;
     sel.appendChild(opt);
   });
-  simsRendered = true;
 }
 
 function renderQr(state) {
@@ -168,12 +170,13 @@ function render(state) {
     connPill.className = "pill pill-ok";
     showView(true);
     renderQr(state);
-    // simulator status
+    // simulator / source status
+    const active = state.source_id && state.source_id !== "none";
+    const connected = active && state.stream_status === "streaming";
     const simTag = $("sim-status");
-    if (state.sim_active) { simTag.textContent = "CONNECTED"; simTag.className = "tag tag-green"; }
-    else { simTag.textContent = "DISCONNECTED"; simTag.className = "tag tag-grey"; }
-    const toggle = $("sim-toggle");
-    if (toggle.checked !== state.sim_active) toggle.checked = state.sim_active;
+    simTag.textContent = connected ? "CONNECTED" : (active ? "CONNECTING" : "DISCONNECTED");
+    simTag.className = connected ? "tag tag-green" : (active ? "tag tag-amber" : "tag tag-grey");
+    $("sim-aircraft").textContent = state.aircraft || (active ? "Detecting aircraft…" : "—");
 
     // stream status
     const map = {
@@ -202,7 +205,7 @@ function render(state) {
 
     const phaseTag = $("phase-tag");
     phaseTag.textContent = (state.flight_phase || "PARKED").toUpperCase();
-    phaseTag.className = state.sim_active ? "tag tag-cyan" : "tag tag-grey";
+    phaseTag.className = active ? "tag tag-cyan" : "tag tag-grey";
     updatePlane(state.flight_progress || 0, state.flight_phase || "Parked");
 
     renderPtt(state);
@@ -250,7 +253,7 @@ function wireEvents() {
     teleOpen = false;
     $("tele-body").classList.add("hidden");
     $("tele-head").setAttribute("aria-expanded", "false");
-    $("sim-toggle").checked = false;
+    simsSig = "";   // force the source dropdown to re-render after token rotation
     api().logout();
   });
   $("signup-link").addEventListener("click", (e) => { e.preventDefault(); api().open_signup(); });
@@ -265,8 +268,7 @@ function wireEvents() {
   });
   $("ptt-clear-btn").addEventListener("click", () => api().ptt_clear());
   $("ptt-perm-btn").addEventListener("click", () => api().open_input_monitoring());
-  $("sim-toggle").addEventListener("change", (e) => api().set_sim_active(e.target.checked));
-  $("sim-select").addEventListener("change", (e) => api().set_simulator(e.target.value));
+  $("sim-select").addEventListener("change", (e) => api().set_source(e.target.value));
   $("tele-head").addEventListener("click", toggleTelemetry);
 }
 

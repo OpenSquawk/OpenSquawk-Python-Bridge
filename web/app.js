@@ -110,23 +110,48 @@ function showView(connected) {
 }
 
 function renderPtt(state) {
-  pttCapturing = !!state.ptt_capturing;
+  pttCapturing = state.ptt_capturing || null;   // 'key' | 'joy' | null
+  const capturing = pttCapturing !== null;
 
-  setText("ptt-key", pttCapturing ? "Press a key…" : state.ptt_key_label);
+  if (pttCapturing === "key") setText("ptt-key", "Press a key or combo…");
+  else if (pttCapturing === "joy") setText("ptt-key", "Press a joystick button…");
+  else setText("ptt-key", state.ptt_key_label);
 
+  // Status tag: live TX while transmitting, else ARMED / OFF.
   const tag = $("ptt-status");
-  if (state.ptt_set && !pttCapturing) {
+  if (state.ptt_active) {
+    tag.textContent = "TX"; tag.className = "tag tag-tx";
+  } else if (state.ptt_set && !capturing) {
     tag.textContent = "ARMED"; tag.className = "tag tag-green";
   } else {
     tag.textContent = "OFF"; tag.className = "tag tag-grey";
   }
 
-  $("ptt-set-btn").textContent = pttCapturing ? "Cancel" : (state.ptt_set ? "Change" : "Set key");
-  $("ptt-clear-btn").classList.toggle("hidden", !state.ptt_set || pttCapturing);
-  $("ptt-capturing").classList.toggle("hidden", !pttCapturing);
+  // Live "Transmitting…" banner — proves the trigger is recognised even before
+  // anything reaches the browser.
+  $("ptt-tx").classList.toggle("hidden", !state.ptt_active);
+
+  // Key button: doubles as Cancel while capturing a key.
+  $("ptt-set-btn").textContent = pttCapturing === "key" ? "Cancel" : (state.ptt_set ? "Change" : "Set key");
+  $("ptt-set-btn").classList.toggle("hidden", pttCapturing === "joy");
+
+  // Joystick button: only when pygame found a device; doubles as Cancel.
+  const joyBtn = $("ptt-joy-btn");
+  joyBtn.classList.toggle("hidden", !state.ptt_joy_supported || pttCapturing === "key");
+  joyBtn.textContent = pttCapturing === "joy" ? "Cancel" : "Set joystick";
+
+  $("ptt-clear-btn").classList.toggle("hidden", !state.ptt_set || capturing);
+
+  $("ptt-capturing").classList.toggle("hidden", !capturing);
+  setText(
+    "ptt-capturing-text",
+    pttCapturing === "joy"
+      ? "Press a joystick button to bind it…"
+      : "Press a key or hold a combo, then release… (Esc to cancel)",
+  );
 
   // We can't detect whether Input Monitoring was granted, so on macOS we show
-  // the hint once a key is bound — that's exactly when a missing grant bites.
+  // the hint once a trigger is bound — that's exactly when a missing grant bites.
   $("ptt-perm").classList.toggle("hidden", !(state.ptt_is_mac && state.ptt_set));
 }
 
@@ -231,8 +256,12 @@ function wireEvents() {
   $("signup-link").addEventListener("click", (e) => { e.preventDefault(); api().open_signup(); });
   $("open-pm-btn").addEventListener("click", () => api().open_pm());
   $("ptt-set-btn").addEventListener("click", () => {
-    if (pttCapturing) api().ptt_cancel_capture();
-    else api().ptt_capture();
+    if (pttCapturing === "key") api().ptt_cancel_capture();
+    else api().ptt_capture_key();
+  });
+  $("ptt-joy-btn").addEventListener("click", () => {
+    if (pttCapturing === "joy") api().ptt_cancel_capture();
+    else api().ptt_capture_joy();
   });
   $("ptt-clear-btn").addEventListener("click", () => api().ptt_clear());
   $("ptt-perm-btn").addEventListener("click", () => api().open_input_monitoring());

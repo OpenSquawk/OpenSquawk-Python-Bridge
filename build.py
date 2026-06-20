@@ -87,6 +87,11 @@ def main() -> int:
         "--noconfirm", "--clean", "--windowed",
         "--name", APP_NAME,
         "--add-data", f"{WEB}{data_sep}web",
+        # pynput (keyboard hotkey) and pygame (joystick/HOTAS) import their
+        # platform backends dynamically, so PyInstaller's static analysis misses
+        # them unless we pull in all submodules explicitly.
+        "--collect-submodules", "pynput",
+        "--collect-submodules", "pygame",
     ]
 
     if system == "Windows":

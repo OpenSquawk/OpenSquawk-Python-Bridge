@@ -305,6 +305,34 @@ html, body {
 .ptt-hint .btn-small { flex: none; margin-left: auto; }
 .ptt-warn { color: var(--amber); }
 
+/* live transmitting indicator */
+.tag-tx { color: #2a0a0a; background: var(--danger); border-color: transparent; }
+.ptt-tx {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.tx-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6);
+  animation: tx-pulse 1s ease-out infinite;
+}
+@keyframes tx-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+  100% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+}
+
 /* QR row */
 .qr-row {
   display: flex;

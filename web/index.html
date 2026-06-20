@@ -86,24 +86,31 @@
           <span id="ptt-status" class="tag tag-grey">OFF</span>
         </div>
         <p class="panel-text">
-          Bind a key to transmit from anywhere — hold it while flying and the radio
-          on this PC records, even when the simulator is in front.
+          Bind a key, key combo, or joystick/HOTAS button to transmit from
+          anywhere — hold it while flying and the radio on this PC records, even
+          when the simulator is in front.
         </p>
 
         <div class="row">
           <div class="row-text">
-            <div class="row-title">Hotkey</div>
+            <div class="row-title">Trigger</div>
             <div class="row-sub" id="ptt-key">Not set</div>
           </div>
           <div class="ptt-actions">
             <button id="ptt-set-btn" class="btn btn-small">Set key</button>
+            <button id="ptt-joy-btn" class="btn btn-small">Set joystick</button>
             <button id="ptt-clear-btn" class="btn btn-small btn-ghost hidden">Clear</button>
           </div>
         </div>
 
+        <div id="ptt-tx" class="ptt-tx hidden">
+          <span class="tx-dot"></span>
+          <span>Transmitting…</span>
+        </div>
+
         <div id="ptt-capturing" class="ptt-hint hidden">
           <span class="spinner"></span>
-          <span>Press any key to bind it… (Esc to cancel)</span>
+          <span id="ptt-capturing-text">Press any key to bind it… (Esc to cancel)</span>
         </div>
 
         <div id="ptt-perm" class="ptt-hint ptt-warn hidden">

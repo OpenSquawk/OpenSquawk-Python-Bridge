@@ -95,12 +95,20 @@ class BridgeApi:
         self.token = self._load_or_create_token()
         self.flight = DummyFlight()
 
-        # push-to-talk hotkey: a canonical key id (see _key_identity) or None.
-        stored_key = self._read_config().get("ptt_key")
-        self.ptt_key: str | None = stored_key if isinstance(stored_key, str) else None
-        self._ptt_capturing = False   # armed by the UI to bind the next keypress
-        self._ptt_held = False        # de-bounces OS key auto-repeat
-        self.ptt_supported = False    # set once the global listener is running
+        # push-to-talk trigger (see the push-to-talk section). Migrate the old
+        # single-key `ptt_key` string into the new {"type":"keys",...} shape.
+        cfg = self._read_config()
+        trigger = cfg.get("ptt_trigger")
+        if not isinstance(trigger, dict):
+            legacy = cfg.get("ptt_key")
+            trigger = {"type": "keys", "keys": [legacy]} if isinstance(legacy, str) else None
+        self.trigger: dict | None = trigger
+        self._capturing: str | None = None   # 'key' | 'joy' while the UI is binding
+        self._capture_keys: list[str] = []    # keys held so far during a combo bind
+        self._pressed: set[str] = set()        # keys currently down (for combo match)
+        self._ptt_active = False               # transmitting right now (live state)
+        self.ptt_supported = False             # keyboard listener running
+        self.ptt_joy_supported = False         # joystick listener running
         self._kb_listener = None
 
         # the PM/recording app link is per-token and stable, so build it once
@@ -133,6 +141,7 @@ class BridgeApi:
         threading.Thread(target=self._poll_loop, daemon=True).start()
         threading.Thread(target=self._stream_loop, daemon=True).start()
         self._start_ptt_listener()
+        self._start_joystick_listener()
 
     # ---- persistence -------------------------------------------------------
 
@@ -273,46 +282,77 @@ class BridgeApi:
         return "streaming" if age <= STREAM_STALE_SECONDS else "stalling"
 
     # ---- push-to-talk hotkey ----------------------------------------------
+    #
+    # The PTT trigger is a single dict, either:
+    #   {"type": "keys", "keys": ["key:ctrl_l", "key:space"]}   (combo if >1)
+    #   {"type": "joy",  "joy": "<device name>", "button": 3}
+    # Keyboard is handled by pynput, joystick buttons by pygame. Both feed the
+    # same _fire(down) so the rest of the app doesn't care which input it was.
 
     @staticmethod
     def _key_identity(key) -> str | None:
-        """A stable, comparable id for a pynput key across press/release.
-
-        Printable keys are matched by character (layout-independent enough for a
-        single machine), others by their named key or virtual-key code.
-        """
+        """A stable, comparable id for a pynput key across press/release."""
         try:
             from pynput import keyboard
         except Exception:
             return None
         if isinstance(key, keyboard.KeyCode):
-            if key.char:
+            # Prefer a readable char for nice labels, but fall back to the
+            # modifier-independent vk when a held modifier mangles `.char`
+            # (e.g. Ctrl+A arrives as '\x01') — keeps combos matching.
+            if key.char and key.char.isprintable():
                 return f"char:{key.char.lower()}"
             if key.vk is not None:
                 return f"vk:{key.vk}"
+            if key.char:
+                return f"char:{key.char.lower()}"
             return None
         if isinstance(key, keyboard.Key):
             return f"key:{key.name}"
         return None
 
     @staticmethod
-    def _key_label(identity: str | None) -> str:
-        if not identity:
-            return "Not set"
+    def _pretty_key(identity: str) -> str:
         kind, _, value = identity.partition(":")
         if kind == "char":
             return value.upper()
         if kind == "key":
             return value.replace("_", " ").title()
         if kind == "vk":
+            try:
+                ch = chr(int(value))
+                if ch.isprintable() and ch.strip():
+                    return ch.upper()
+            except Exception:
+                pass
             return f"Key {value}"
         return identity
+
+    def _trigger_label(self, trig: dict | None) -> str:
+        if not trig:
+            return "Not set"
+        if trig.get("type") == "keys" and trig.get("keys"):
+            return " + ".join(self._pretty_key(k) for k in trig["keys"])
+        if trig.get("type") == "joy":
+            return f"{trig.get('joy', 'Joystick')} · Button {trig.get('button')}"
+        return "Not set"
+
+    def _fire(self, down: bool) -> None:
+        """Edge-triggered PTT, shared by keyboard and joystick paths."""
+        if down and not self._ptt_active:
+            self._ptt_active = True
+            self._send_ptt("down")
+        elif not down and self._ptt_active:
+            self._ptt_active = False
+            self._send_ptt("up")
+
+    # -- keyboard (pynput) --
 
     def _start_ptt_listener(self) -> None:
         try:
             from pynput import keyboard
         except Exception as exc:  # pragma: no cover - optional dependency
-            print(f"[ptt] pynput unavailable, hotkey disabled ({exc})")
+            print(f"[ptt] pynput unavailable, keyboard hotkey disabled ({exc})")
             return
         try:
             self._kb_listener = keyboard.Listener(
@@ -335,34 +375,119 @@ class BridgeApi:
     def _on_key_press(self, key) -> None:
         identity = self._key_identity(key)
 
-        # Binding mode: capture the next key (Esc cancels) and persist it.
-        if self._ptt_capturing:
+        if self._capturing == "key":
             if identity == "key:esc":
-                self._ptt_capturing = False
+                self._capturing = None
+                self._capture_keys = []
                 return
-            if identity is None:
-                return
-            self.ptt_key = identity
-            self._ptt_capturing = False
-            self._ptt_held = False
-            self._update_config(ptt_key=identity)
+            # Accumulate held keys; the combo is frozen on the first release.
+            if identity and identity not in self._capture_keys:
+                self._capture_keys.append(identity)
             return
 
-        if identity and identity == self.ptt_key and not self._ptt_held:
-            self._ptt_held = True
-            self._send_ptt("down")
+        if identity:
+            self._pressed.add(identity)
+        self._eval_key_trigger()
 
     def _on_key_release(self, key) -> None:
-        if self._ptt_capturing:
+        if self._capturing == "key":
+            if self._capture_keys:
+                self.trigger = {"type": "keys", "keys": sorted(self._capture_keys)}
+                self._capturing = None
+                self._capture_keys = []
+                self._pressed.clear()
+                self._update_config(ptt_trigger=self.trigger)
             return
+
         identity = self._key_identity(key)
-        if identity and identity == self.ptt_key and self._ptt_held:
-            self._ptt_held = False
-            self._send_ptt("up")
+        if identity:
+            self._pressed.discard(identity)
+        self._eval_key_trigger()
+
+    def _eval_key_trigger(self) -> None:
+        trig = self.trigger
+        if not trig or trig.get("type") != "keys":
+            return
+        keys = set(trig.get("keys") or [])
+        if keys and keys <= self._pressed:
+            self._fire(True)
+        elif self._ptt_active and not (keys <= self._pressed):
+            self._fire(False)
+
+    # -- joystick / HOTAS (pygame) --
+
+    def _start_joystick_listener(self) -> None:
+        try:
+            os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+            os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+            import pygame
+        except Exception as exc:  # pragma: no cover - optional dependency
+            print(f"[ptt] pygame unavailable, joystick disabled ({exc})")
+            return
+        try:
+            pygame.init()
+            pygame.joystick.init()
+        except Exception as exc:  # pragma: no cover - platform dependent
+            print(f"[ptt] could not init joystick ({exc})")
+            return
+        self.ptt_joy_supported = True
+        threading.Thread(
+            target=self._joy_loop, args=(pygame,), daemon=True
+        ).start()
+
+    def _joy_loop(self, pygame) -> None:
+        sticks: dict[int, object] = {}
+
+        def ensure_sticks() -> None:
+            for i in range(pygame.joystick.get_count()):
+                if i not in sticks:
+                    js = pygame.joystick.Joystick(i)
+                    try:
+                        js.init()
+                    except Exception:
+                        pass
+                    sticks[i] = js
+
+        ensure_sticks()
+        while not self._stop.is_set():
+            try:
+                for event in pygame.event.get():
+                    et = event.type
+                    if et in (pygame.JOYDEVICEADDED, pygame.JOYDEVICEREMOVED):
+                        ensure_sticks()
+                    elif et == pygame.JOYBUTTONDOWN:
+                        self._on_joy_button(pygame, event, True)
+                    elif et == pygame.JOYBUTTONUP:
+                        self._on_joy_button(pygame, event, False)
+            except Exception:  # pragma: no cover - defensive
+                pass
+            self._stop.wait(0.02)  # ~50 Hz
+
+    def _on_joy_button(self, pygame, event, down: bool) -> None:
+        button = getattr(event, "button", None)
+        name = "Joystick"
+        try:
+            js = pygame.joystick.Joystick(event.joy)
+            name = js.get_name()
+        except Exception:
+            pass
+
+        if self._capturing == "joy":
+            if down and button is not None:
+                self.trigger = {"type": "joy", "joy": name, "button": button}
+                self._capturing = None
+                self._update_config(ptt_trigger=self.trigger)
+            return
+
+        trig = self.trigger
+        if trig and trig.get("type") == "joy" and trig.get("button") == button:
+            self._fire(down)
+
+    # -- send --
 
     def _send_ptt(self, state: str) -> None:
-        # POST off the listener thread so a slow network never stalls the
-        # keyboard hook (which would freeze typing system-wide).
+        # POST off the input thread so a slow network never stalls the keyboard
+        # hook (which would freeze typing system-wide).
         threading.Thread(target=self._post_ptt, args=(state,), daemon=True).start()
 
     def _post_ptt(self, state: str) -> None:
@@ -395,21 +520,30 @@ class BridgeApi:
         webbrowser.open(self.pm_url, new=2)
         return {"ok": True, "url": self.pm_url}
 
-    def ptt_capture(self) -> dict:
-        """Arm capture: the next keypress (anywhere) becomes the PTT hotkey."""
-        self._ptt_capturing = True
+    def ptt_capture_key(self) -> dict:
+        """Arm capture: the next key (or held combo) becomes the PTT trigger."""
+        self._capture_keys = []
+        self._capturing = "key"
+        return {"ok": True}
+
+    def ptt_capture_joy(self) -> dict:
+        """Arm capture: the next joystick button press becomes the PTT trigger."""
+        self._capturing = "joy"
         return {"ok": True}
 
     def ptt_cancel_capture(self) -> dict:
-        self._ptt_capturing = False
+        self._capturing = None
+        self._capture_keys = []
         return {"ok": True}
 
     def ptt_clear(self) -> dict:
-        """Unbind the PTT hotkey."""
-        self.ptt_key = None
-        self._ptt_held = False
-        self._ptt_capturing = False
-        self._update_config(ptt_key=None)
+        """Unbind the PTT trigger."""
+        self.trigger = None
+        self._capturing = None
+        self._capture_keys = []
+        self._pressed.clear()
+        self._ptt_active = False
+        self._update_config(ptt_trigger=None)
         return {"ok": True}
 
     def open_input_monitoring(self) -> dict:
@@ -488,10 +622,12 @@ class BridgeApi:
                 "flight_active": self.flight_active,
                 "error": self.error,
                 "base_url": BASE_URL,
-                "ptt_key_label": self._key_label(self.ptt_key),
-                "ptt_set": self.ptt_key is not None,
-                "ptt_capturing": self._ptt_capturing,
+                "ptt_key_label": self._trigger_label(self.trigger),
+                "ptt_set": self.trigger is not None,
+                "ptt_capturing": self._capturing,
+                "ptt_active": self._ptt_active,
                 "ptt_supported": self.ptt_supported,
+                "ptt_joy_supported": self.ptt_joy_supported,
                 "ptt_is_mac": sys.platform == "darwin",
             }
 

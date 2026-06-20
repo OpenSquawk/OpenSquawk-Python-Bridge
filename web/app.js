@@ -320,6 +320,10 @@ function wireEvents() {
   $("ptt-clear-btn").addEventListener("click", () => api().ptt_clear());
   $("ptt-perm-btn").addEventListener("click", () => api().open_input_monitoring());
   $("sim-select").addEventListener("change", (e) => api().set_source(e.target.value));
+  $("ptt-head").addEventListener("click", () => {
+    const open = !$("ptt-body").classList.toggle("hidden");
+    $("ptt-head").setAttribute("aria-expanded", String(open));
+  });
   $("tele-head").addEventListener("click", toggleTelemetry);
 
   $("act-head").addEventListener("click", () => {

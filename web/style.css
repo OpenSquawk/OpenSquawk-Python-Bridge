@@ -515,6 +515,11 @@ html, body {
 }
 .phase-step.active { color: var(--cyan-bright); border-color: var(--cyan); font-weight: 700; }
 
+/* compact Live ATC launch row */
+.launch-row { display: flex; align-items: center; gap: 14px; }
+.launch-row .btn-primary { flex: 1; }
+.qr-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+
 /* flight actions */
 .act-steps { list-style: none; margin: 8px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .act-step { display: flex; justify-content: space-between; align-items: center;

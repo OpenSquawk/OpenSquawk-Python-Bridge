@@ -67,24 +67,27 @@
           <span class="panel-title">Live ATC</span>
           <span class="tag tag-cyan">READY</span>
         </div>
-        <p class="panel-text">
-          Open the push-to-talk radio to talk to ATC. Launch it on this PC next to
-          your simulator, or scan to use it on a phone or tablet — both stay linked
-          to your account.
-        </p>
-        <button id="open-pm-btn" class="btn btn-primary">Open on this PC</button>
-        <div class="qr-row">
-          <div class="qr-box" id="qr-box"><span class="qr-ph">QR…</span></div>
-          <span class="qr-cap">Scan with<br>phone or tablet</span>
+        <p class="panel-text">Open the push-to-talk radio to talk to ATC.</p>
+        <div class="launch-row">
+          <button id="open-pm-btn" class="btn btn-primary">Open on this PC</button>
+          <div class="qr-col">
+            <div class="qr-box" id="qr-box"><span class="qr-ph">QR…</span></div>
+            <span class="qr-cap">auf Handy<br>oder iPad</span>
+          </div>
         </div>
       </article>
 
-      <!-- Push-to-talk hotkey -->
+      <!-- Push-to-talk hotkey (collapsible) -->
       <article class="panel">
-        <div class="panel-head">
+        <button class="panel-head collapse-head" id="ptt-head" aria-expanded="false">
           <span class="panel-title">Push-to-talk hotkey</span>
-          <span id="ptt-status" class="tag tag-grey">OFF</span>
-        </div>
+          <span class="head-right">
+            <span id="ptt-status" class="tag tag-grey">OFF</span>
+            <span class="chevron" id="ptt-chevron">▾</span>
+          </span>
+        </button>
+
+        <div id="ptt-body" class="collapse-body hidden">
         <p class="panel-text">
           Bind a key, key combo, or joystick/HOTAS button to transmit from
           anywhere — hold it while flying and the radio on this PC records, even
@@ -116,6 +119,7 @@
         <div id="ptt-perm" class="ptt-hint ptt-warn hidden">
           <span>macOS needs Input Monitoring permission for a global hotkey.</span>
           <button id="ptt-perm-btn" class="btn btn-small">Open settings</button>
+        </div>
         </div>
       </article>
 

@@ -79,6 +79,39 @@
         </div>
       </article>
 
+      <!-- Push-to-talk hotkey -->
+      <article class="panel">
+        <div class="panel-head">
+          <span class="panel-title">Push-to-talk hotkey</span>
+          <span id="ptt-status" class="tag tag-grey">OFF</span>
+        </div>
+        <p class="panel-text">
+          Bind a key to transmit from anywhere — hold it while flying and the radio
+          on this PC records, even when the simulator is in front.
+        </p>
+
+        <div class="row">
+          <div class="row-text">
+            <div class="row-title">Hotkey</div>
+            <div class="row-sub" id="ptt-key">Not set</div>
+          </div>
+          <div class="ptt-actions">
+            <button id="ptt-set-btn" class="btn btn-small">Set key</button>
+            <button id="ptt-clear-btn" class="btn btn-small btn-ghost hidden">Clear</button>
+          </div>
+        </div>
+
+        <div id="ptt-capturing" class="ptt-hint hidden">
+          <span class="spinner"></span>
+          <span>Press any key to bind it… (Esc to cancel)</span>
+        </div>
+
+        <div id="ptt-perm" class="ptt-hint ptt-warn hidden">
+          <span>macOS needs Input Monitoring permission for a global hotkey.</span>
+          <button id="ptt-perm-btn" class="btn btn-small">Open settings</button>
+        </div>
+      </article>
+
       <!-- Simulator -->
       <article class="panel">
         <div class="panel-head">

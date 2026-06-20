@@ -49,7 +49,9 @@ right corner.
 - **Python 3.10+**
 - OS webview runtime (already present on all major platforms):
   - **Windows**: Microsoft Edge WebView2 Runtime (preinstalled on Win 11; on
-    Win 10 install it from Microsoft if missing).
+    Win 10 often missing). If missing, the app detects it on startup and points
+    you to the download — or grab the "Evergreen Bootstrapper" directly from
+    <https://go.microsoft.com/fwlink/p/?LinkId=2124703>.
   - **macOS**: WKWebView (built in).
   - **Linux**: WebKitGTK + PyGObject, e.g. on Debian/Ubuntu:
     `sudo apt install python3-gi gir1.2-webkit2-4.1`

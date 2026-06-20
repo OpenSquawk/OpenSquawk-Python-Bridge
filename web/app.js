@@ -11,6 +11,7 @@ let simsRendered = false;
 let qrRendered = false;
 let teleOpen = false;        // live telemetry collapsed by default
 let loginClicked = false;    // show the waiting indicator after the user starts login
+let pttCapturing = false;    // mirrors backend capture state for the Set/Cancel toggle
 
 function api() {
   return window.pywebview && window.pywebview.api;
@@ -108,6 +109,27 @@ function showView(connected) {
   $("bg-banner").classList.toggle("hidden", !connected);
 }
 
+function renderPtt(state) {
+  pttCapturing = !!state.ptt_capturing;
+
+  setText("ptt-key", pttCapturing ? "Press a key…" : state.ptt_key_label);
+
+  const tag = $("ptt-status");
+  if (state.ptt_set && !pttCapturing) {
+    tag.textContent = "ARMED"; tag.className = "tag tag-green";
+  } else {
+    tag.textContent = "OFF"; tag.className = "tag tag-grey";
+  }
+
+  $("ptt-set-btn").textContent = pttCapturing ? "Cancel" : (state.ptt_set ? "Change" : "Set key");
+  $("ptt-clear-btn").classList.toggle("hidden", !state.ptt_set || pttCapturing);
+  $("ptt-capturing").classList.toggle("hidden", !pttCapturing);
+
+  // We can't detect whether Input Monitoring was granted, so on macOS we show
+  // the hint once a key is bound — that's exactly when a missing grant bites.
+  $("ptt-perm").classList.toggle("hidden", !(state.ptt_is_mac && state.ptt_set));
+}
+
 // ---- main render -----------------------------------------------------------
 
 function render(state) {
@@ -157,6 +179,8 @@ function render(state) {
     phaseTag.textContent = (state.flight_phase || "PARKED").toUpperCase();
     phaseTag.className = state.sim_active ? "tag tag-cyan" : "tag tag-grey";
     updatePlane(state.flight_progress || 0, state.flight_phase || "Parked");
+
+    renderPtt(state);
   } else {
     connPill.textContent = "Not linked";
     connPill.className = "pill pill-muted";
@@ -206,6 +230,12 @@ function wireEvents() {
   });
   $("signup-link").addEventListener("click", (e) => { e.preventDefault(); api().open_signup(); });
   $("open-pm-btn").addEventListener("click", () => api().open_pm());
+  $("ptt-set-btn").addEventListener("click", () => {
+    if (pttCapturing) api().ptt_cancel_capture();
+    else api().ptt_capture();
+  });
+  $("ptt-clear-btn").addEventListener("click", () => api().ptt_clear());
+  $("ptt-perm-btn").addEventListener("click", () => api().open_input_monitoring());
   $("sim-toggle").addEventListener("change", (e) => api().set_sim_active(e.target.checked));
   $("sim-select").addEventListener("change", (e) => api().set_simulator(e.target.value));
   $("tele-head").addEventListener("click", toggleTelemetry);

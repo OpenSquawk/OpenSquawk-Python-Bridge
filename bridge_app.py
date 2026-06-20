@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import subprocess
 import sys
 import threading
 import time
@@ -94,6 +95,14 @@ class BridgeApi:
         self.token = self._load_or_create_token()
         self.flight = DummyFlight()
 
+        # push-to-talk hotkey: a canonical key id (see _key_identity) or None.
+        stored_key = self._read_config().get("ptt_key")
+        self.ptt_key: str | None = stored_key if isinstance(stored_key, str) else None
+        self._ptt_capturing = False   # armed by the UI to bind the next keypress
+        self._ptt_held = False        # de-bounces OS key auto-repeat
+        self.ptt_supported = False    # set once the global listener is running
+        self._kb_listener = None
+
         # the PM/recording app link is per-token and stable, so build it once
         self.pm_url = f"{PM_URL}?token={self.token}"
         self.pm_qr_svg = _make_qr_svg(self.pm_url)
@@ -123,6 +132,7 @@ class BridgeApi:
 
         threading.Thread(target=self._poll_loop, daemon=True).start()
         threading.Thread(target=self._stream_loop, daemon=True).start()
+        self._start_ptt_listener()
 
     # ---- persistence -------------------------------------------------------
 
@@ -135,24 +145,39 @@ class BridgeApi:
         )
 
     def _load_or_create_token(self) -> str:
-        try:
-            if CONFIG_FILE.exists():
-                data = json.loads(CONFIG_FILE.read_text())
-                token = data.get("token")
-                if self._is_valid_token(token):
-                    return token
-        except Exception:
-            pass
+        token = self._read_config().get("token")
+        if self._is_valid_token(token):
+            return token
         token = _generate_token()
-        self._save_config({"token": token})
+        self._update_config(token=token)
         return token
 
     def _rotate_token(self) -> None:
         """Issue a fresh pairing code and rebuild the per-token PM link + QR."""
         self.token = _generate_token()
-        self._save_config({"token": self.token})
+        self._update_config(token=self.token)
         self.pm_url = f"{PM_URL}?token={self.token}"
         self.pm_qr_svg = _make_qr_svg(self.pm_url)
+
+    def _read_config(self) -> dict:
+        try:
+            if CONFIG_FILE.exists():
+                data = json.loads(CONFIG_FILE.read_text())
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            pass
+        return {}
+
+    def _update_config(self, **changes: object) -> None:
+        """Merge `changes` into config.json; a value of None removes the key."""
+        data = self._read_config()
+        for key, value in changes.items():
+            if value is None:
+                data.pop(key, None)
+            else:
+                data[key] = value
+        self._save_config(data)
 
     def _save_config(self, data: dict) -> None:
         try:
@@ -247,6 +272,110 @@ class BridgeApi:
         age = _now() - self.last_data_ok_at
         return "streaming" if age <= STREAM_STALE_SECONDS else "stalling"
 
+    # ---- push-to-talk hotkey ----------------------------------------------
+
+    @staticmethod
+    def _key_identity(key) -> str | None:
+        """A stable, comparable id for a pynput key across press/release.
+
+        Printable keys are matched by character (layout-independent enough for a
+        single machine), others by their named key or virtual-key code.
+        """
+        try:
+            from pynput import keyboard
+        except Exception:
+            return None
+        if isinstance(key, keyboard.KeyCode):
+            if key.char:
+                return f"char:{key.char.lower()}"
+            if key.vk is not None:
+                return f"vk:{key.vk}"
+            return None
+        if isinstance(key, keyboard.Key):
+            return f"key:{key.name}"
+        return None
+
+    @staticmethod
+    def _key_label(identity: str | None) -> str:
+        if not identity:
+            return "Not set"
+        kind, _, value = identity.partition(":")
+        if kind == "char":
+            return value.upper()
+        if kind == "key":
+            return value.replace("_", " ").title()
+        if kind == "vk":
+            return f"Key {value}"
+        return identity
+
+    def _start_ptt_listener(self) -> None:
+        try:
+            from pynput import keyboard
+        except Exception as exc:  # pragma: no cover - optional dependency
+            print(f"[ptt] pynput unavailable, hotkey disabled ({exc})")
+            return
+        try:
+            self._kb_listener = keyboard.Listener(
+                on_press=self._on_key_press,
+                on_release=self._on_key_release,
+            )
+            self._kb_listener.daemon = True
+            self._kb_listener.start()
+            self.ptt_supported = True
+        except Exception as exc:  # pragma: no cover - platform dependent
+            print(f"[ptt] could not start keyboard listener ({exc})")
+
+    def _stop_ptt_listener(self) -> None:
+        if self._kb_listener is not None:
+            try:
+                self._kb_listener.stop()
+            except Exception:
+                pass
+
+    def _on_key_press(self, key) -> None:
+        identity = self._key_identity(key)
+
+        # Binding mode: capture the next key (Esc cancels) and persist it.
+        if self._ptt_capturing:
+            if identity == "key:esc":
+                self._ptt_capturing = False
+                return
+            if identity is None:
+                return
+            self.ptt_key = identity
+            self._ptt_capturing = False
+            self._ptt_held = False
+            self._update_config(ptt_key=identity)
+            return
+
+        if identity and identity == self.ptt_key and not self._ptt_held:
+            self._ptt_held = True
+            self._send_ptt("down")
+
+    def _on_key_release(self, key) -> None:
+        if self._ptt_capturing:
+            return
+        identity = self._key_identity(key)
+        if identity and identity == self.ptt_key and self._ptt_held:
+            self._ptt_held = False
+            self._send_ptt("up")
+
+    def _send_ptt(self, state: str) -> None:
+        # POST off the listener thread so a slow network never stalls the
+        # keyboard hook (which would freeze typing system-wide).
+        threading.Thread(target=self._post_ptt, args=(state,), daemon=True).start()
+
+    def _post_ptt(self, state: str) -> None:
+        try:
+            requests.post(
+                f"{API_URL}/ptt",
+                headers=self._headers,
+                json={"state": state},
+                timeout=REQUEST_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            print(f"[ptt] send failed ({exc.__class__.__name__})")
+
     # ---- exposed API (called from JS) -------------------------------------
 
     def login(self) -> dict:
@@ -265,6 +394,35 @@ class BridgeApi:
         """Open the OpenSquawk PM/recording app in the browser on this PC."""
         webbrowser.open(self.pm_url, new=2)
         return {"ok": True, "url": self.pm_url}
+
+    def ptt_capture(self) -> dict:
+        """Arm capture: the next keypress (anywhere) becomes the PTT hotkey."""
+        self._ptt_capturing = True
+        return {"ok": True}
+
+    def ptt_cancel_capture(self) -> dict:
+        self._ptt_capturing = False
+        return {"ok": True}
+
+    def ptt_clear(self) -> dict:
+        """Unbind the PTT hotkey."""
+        self.ptt_key = None
+        self._ptt_held = False
+        self._ptt_capturing = False
+        self._update_config(ptt_key=None)
+        return {"ok": True}
+
+    def open_input_monitoring(self) -> dict:
+        """Open the macOS Input Monitoring settings pane (no-op elsewhere)."""
+        if sys.platform == "darwin":
+            try:
+                subprocess.Popen([
+                    "open",
+                    "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
+                ])
+            except Exception as exc:  # pragma: no cover - best effort
+                print(f"[ptt] could not open settings ({exc})")
+        return {"ok": True}
 
     def logout(self) -> dict:
         """Local logout: stop streaming, forget connection, issue a new code.
@@ -330,11 +488,74 @@ class BridgeApi:
                 "flight_active": self.flight_active,
                 "error": self.error,
                 "base_url": BASE_URL,
+                "ptt_key_label": self._key_label(self.ptt_key),
+                "ptt_set": self.ptt_key is not None,
+                "ptt_capturing": self._ptt_capturing,
+                "ptt_supported": self.ptt_supported,
+                "ptt_is_mac": sys.platform == "darwin",
             }
 
 
 ICON_PNG = WEB_DIR / "assets" / "icon.png"
 APP_NAME = "OpenSquawk Bridge"
+
+# Official Microsoft "Evergreen Bootstrapper" — installs the WebView2 runtime.
+WEBVIEW2_DOWNLOAD_URL = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
+
+
+def _windows_message_box(text: str, title: str = APP_NAME, *, error: bool = True) -> None:
+    """Show a native Windows dialog. No-op (prints) off Windows.
+
+    The packaged app is built with `--windowed`, so a raw crash leaves the user
+    with no message at all. This is how we surface startup problems instead.
+    """
+    if not sys.platform.startswith("win"):
+        print(text)
+        return
+    try:
+        import ctypes
+
+        # MB_OK | (MB_ICONERROR or MB_ICONINFORMATION)
+        flags = 0x10 if error else 0x40
+        ctypes.windll.user32.MessageBoxW(0, text, title, flags)
+    except Exception:
+        print(text)
+
+
+def _webview2_installed() -> bool:
+    """Whether the Edge WebView2 runtime is present on this Windows machine.
+
+    pywebview renders the UI with WebView2. It ships on Windows 11 but is often
+    missing on Windows 10, in which case `webview.start()` crashes. We detect it
+    via the runtime's registry key (Microsoft's documented method). Returns True
+    on non-Windows or when detection is inconclusive, so we never block wrongly.
+    """
+    if not sys.platform.startswith("win"):
+        return True
+    try:
+        import winreg
+    except Exception:
+        return True
+
+    # The Evergreen runtime's well-known client GUID. Machine-wide installs land
+    # under the 32-bit registry view (WOW6432Node); per-user under HKCU.
+    client = r"Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+    candidates = [
+        (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\WOW6432Node\{client}"),
+        (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\{client}"),
+        (winreg.HKEY_CURRENT_USER, rf"SOFTWARE\{client}"),
+    ]
+    for root, path in candidates:
+        try:
+            with winreg.OpenKey(root, path) as key:
+                version, _ = winreg.QueryValueEx(key, "pv")
+                if version and version not in ("", "0.0.0.0"):
+                    return True
+        except FileNotFoundError:
+            continue
+        except OSError:
+            continue
+    return False
 
 
 def _apply_macos_app_name() -> None:
@@ -395,6 +616,21 @@ def _apply_runtime_icon(*_args) -> None:
 
 def main() -> None:
     _apply_macos_app_name()  # set the app/menu name before the UI builds its menu
+
+    # On Windows the UI can't render without the WebView2 runtime. Catch the
+    # common case early with a clear, actionable dialog instead of a silent crash.
+    if not _webview2_installed():
+        _windows_message_box(
+            f"{APP_NAME} benötigt die Microsoft Edge WebView2-Runtime, "
+            "die auf diesem PC fehlt.\n\n"
+            "Sie ist auf Windows 11 vorinstalliert; auf Windows 10 muss sie "
+            "einmalig nachinstalliert werden.\n\n"
+            "Wir öffnen jetzt die Download-Seite. Installiere die "
+            "\"Evergreen Bootstrapper\"-Version und starte die App danach erneut.",
+        )
+        webbrowser.open(WEBVIEW2_DOWNLOAD_URL, new=2)
+        return
+
     api = BridgeApi()
     index = WEB_DIR / "index.html"
     window = webview.create_window(
@@ -409,16 +645,31 @@ def main() -> None:
 
     def _on_closing():
         api._stop.set()
+        api._stop_ptt_listener()
 
     window.events.closing += _on_closing
     window.events.shown += _apply_runtime_icon  # set the icon once the UI is up
 
     # `icon` is honoured by the GTK/Qt backends; ignored (harmlessly) elsewhere.
     try:
-        webview.start(icon=str(ICON_PNG))
-    except TypeError:
-        # older pywebview without the `icon` kwarg
-        webview.start()
+        try:
+            webview.start(icon=str(ICON_PNG))
+        except TypeError:
+            # older pywebview without the `icon` kwarg
+            webview.start()
+    except Exception as exc:
+        # The window backend failed to start (e.g. a WebView2/runtime problem we
+        # could not detect up front). The `--windowed` build has no console, so
+        # show the real error instead of vanishing.
+        api._stop.set()
+        api._stop_ptt_listener()
+        _windows_message_box(
+            f"{APP_NAME} konnte das Fenster nicht öffnen.\n\n"
+            f"{exc.__class__.__name__}: {exc}\n\n"
+            "Auf Windows ist dafür meist die fehlende Microsoft Edge "
+            f"WebView2-Runtime verantwortlich:\n{WEBVIEW2_DOWNLOAD_URL}",
+        )
+        raise
 
 
 if __name__ == "__main__":

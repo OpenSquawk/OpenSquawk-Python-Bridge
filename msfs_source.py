@@ -76,3 +76,54 @@ def map_simvars(s: dict) -> dict:
         "longitude_deg": round(math.degrees(float(s["plane_longitude"])), 6),
         "heading_deg": round(math.degrees(float(s["plane_heading_true"])) % 360.0, 1),
     }
+
+
+# Representative progress for the phase stepper/plane animation (the dummy's
+# phase boundaries; using the mid-point of each phase band).
+_PHASE_PROGRESS = {
+    "Parked": 0.03, "Taxi": 0.09, "Takeoff": 0.15, "Climb": 0.26,
+    "Cruise": 0.47, "Descent": 0.69, "Approach": 0.84, "Landing": 0.93,
+    "Rollout": 0.98,
+}
+
+
+class PhaseEstimator:
+    """Derive a flight phase from live telemetry.
+
+    Stateful because the same on-ground/low-speed snapshot means "Taxi/Takeoff"
+    before a flight but "Rollout" after one — we track whether we have been
+    airborne to disambiguate.
+    """
+
+    def __init__(self) -> None:
+        self._airborne_seen = False
+        self._last = "Parked"
+
+    def update(self, *, on_ground: bool, alt: float, vs: float, ias: float,
+               parking_brake: bool) -> tuple[str, float]:
+        phase = self._classify(on_ground, alt, vs, ias, parking_brake)
+        self._last = phase
+        return phase, _PHASE_PROGRESS.get(phase, 0.0)
+
+    def _classify(self, on_ground, alt, vs, ias, parking_brake) -> str:
+        if not on_ground:
+            self._airborne_seen = True
+            if vs > 500:
+                return "Climb"
+            if vs < -500:
+                return "Approach" if alt < 4000 else "Descent"
+            return "Cruise"
+        # on the ground
+        if not self._airborne_seen:
+            if parking_brake or ias < 1:
+                return "Parked"
+            if ias < 30:
+                return "Taxi"
+            return "Takeoff"
+        # after a flight
+        if ias > 35:
+            return "Landing"
+        if parking_brake or ias < 1:
+            self._airborne_seen = False  # ready for the next cycle
+            return "Parked"
+        return "Rollout"

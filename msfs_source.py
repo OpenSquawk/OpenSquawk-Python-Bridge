@@ -9,6 +9,7 @@ map_simvars, PhaseEstimator) are fully unit-tested without a simulator.
 from __future__ import annotations
 
 import math
+import sys
 
 # SimConnect "VERTICAL SPEED" comes through Python-SimConnect in feet/second;
 # the app streams feet/minute. (Verify on Windows — if already fpm, set to 1.0.)
@@ -127,3 +128,119 @@ class PhaseEstimator:
             self._airborne_seen = False  # ready for the next cycle
             return "Parked"
         return "Rollout"
+
+
+from simulator import FlightState  # noqa: E402 (after pure helpers; avoids cycle at top)
+
+_MSFS_PROCESSES = ("FlightSimulator2024.exe", "FlightSimulator.exe")
+
+
+def msfs_available() -> bool:
+    """Cheap detection: is an MSFS process running? Windows only.
+
+    Used to enable/disable the MSFS entry in the source dropdown. Actual
+    connection happens on selection (MsfsSource.open).
+    """
+    if not sys.platform.startswith("win"):
+        return False
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq FlightSimulator*"],
+            capture_output=True, text=True, timeout=4,
+        ).stdout
+        return any(p in out for p in _MSFS_PROCESSES)
+    except Exception:
+        return False
+
+
+# SimVar keys requested from Python-SimConnect, mapped to the native-unit keys
+# map_simvars() expects. Names use the underscore form the library uses.
+_SIMVAR_KEYS = {
+    "airspeed_indicated": "AIRSPEED_INDICATED",
+    "airspeed_true": "AIRSPEED_TRUE",
+    "ground_velocity": "GROUND_VELOCITY",
+    "vertical_speed": "VERTICAL_SPEED",
+    "indicated_altitude": "INDICATED_ALTITUDE",
+    "plane_altitude": "PLANE_ALTITUDE",
+    "plane_pitch": "PLANE_PITCH_DEGREES",
+    "eng_n1_1": "TURB_ENG_N1:1",
+    "eng_n1_2": "TURB_ENG_N1:2",
+    "eng_combustion": "GENERAL_ENG_COMBUSTION:1",
+    "sim_on_ground": "SIM_ON_GROUND",
+    "gear_handle": "GEAR_HANDLE_POSITION",
+    "flaps_index": "FLAPS_HANDLE_INDEX",
+    "parking_brake": "BRAKE_PARKING_POSITION",
+    "autopilot_master": "AUTOPILOT_MASTER",
+    "com_active_hz": "COM_ACTIVE_FREQUENCY:1",
+    "com_standby_hz": "COM_STANDBY_FREQUENCY:1",
+    "transponder_bcd16": "TRANSPONDER_CODE:1",
+    "plane_latitude": "PLANE_LATITUDE",
+    "plane_longitude": "PLANE_LONGITUDE",
+    "plane_heading_true": "PLANE_HEADING_DEGREES_TRUE",
+}
+
+
+class MsfsSource:
+    """Live MSFS telemetry source (standard SimVars via Python-SimConnect)."""
+
+    id = "msfs2024"
+
+    def __init__(self) -> None:
+        self._sm = None          # SimConnect handle
+        self._aq = None          # AircraftRequests
+        self._connected = False
+        self._phase = PhaseEstimator()
+
+    def open(self) -> None:
+        """Connect to a running MSFS. Raises on failure (sim not running, no DLL)."""
+        from SimConnect import SimConnect, AircraftRequests  # lazy: Windows-only
+        self._sm = SimConnect()
+        self._aq = AircraftRequests(self._sm, _time=200)
+        self._connected = True
+
+    def close(self) -> None:
+        self._connected = False
+        if self._sm is not None:
+            try:
+                self._sm.exit()
+            except Exception:
+                pass
+        self._sm = None
+        self._aq = None
+
+    def read_raw(self) -> tuple[dict, str]:
+        """Read the live SimVars + TITLE. The Windows-only seam (verify there).
+
+        Returns (native_values, title). Returns native units; map_simvars()
+        converts to the app's telemetry dict.
+        """
+        aq = self._aq
+        native = {}
+        for key, simvar in _SIMVAR_KEYS.items():
+            val = aq.get(simvar)
+            native[key] = 0.0 if val is None else float(val)
+        title = aq.get("TITLE")
+        if isinstance(title, (bytes, bytearray)):
+            title = title.decode("utf-8", "replace")
+        return native, (title or "")
+
+    def sample(self) -> "FlightState | None":
+        if not self._connected:
+            return None
+        try:
+            native, title = self.read_raw()
+        except Exception:
+            self._connected = False
+            return None
+        raw = map_simvars(native)
+        phase, progress = self._phase.update(
+            on_ground=raw["on_ground"], alt=raw["altitude_ft_indicated"],
+            vs=raw["vertical_speed_fpm"], ias=raw["ias_kt"],
+            parking_brake=raw["parking_brake"],
+        )
+        return FlightState(
+            raw=raw, phase=phase, progress=progress,
+            flight_active=not raw["on_ground"],
+            aircraft=classify_aircraft(title), connected=True,
+        )

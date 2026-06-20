@@ -21,6 +21,8 @@ from pathlib import Path
 import requests
 import webview
 
+import actions
+
 
 def _resource_dir() -> Path:
     """Base dir for bundled assets — handles PyInstaller's `sys._MEIPASS`."""
@@ -111,6 +113,20 @@ class BridgeApi:
         self.ptt_supported = False             # keyboard listener running
         self.ptt_joy_supported = False         # joystick listener running
         self._kb_listener = None
+
+        # flight-action chain (see actions.py). Persisted in config.json.
+        try:
+            self.actions_steps = actions.normalize_steps(cfg.get("actions_steps") or [])
+        except Exception:
+            self.actions_steps = []
+        self.actions_autorun = bool(cfg.get("actions_autorun"))
+        self.actions_trigger = cfg.get("actions_trigger") if isinstance(cfg.get("actions_trigger"), dict) else None
+        self._actions_running = False
+        self._actions_recording = False
+        self._record_events: list = []
+        self._actions_backend = None  # lazily built actions.PynputBackend
+        self._session_armed = False   # True once we've auto-fired for the current session
+        self._actions_combo_down = False  # edge-detect for the actions hotkey (Task 7)
 
         # the PM/recording app link is per-token and stable, so build it once
         self.pm_url = f"{PM_URL}?token={self.token}"
@@ -646,6 +662,39 @@ class BridgeApi:
             self.last_data_ok_at = None
         return {"ok": True, "source_id": source_id}
 
+    # ---- flight actions ----------------------------------------------------
+
+    def _save_actions_steps(self) -> None:
+        self._update_config(actions_steps=self.actions_steps)
+
+    def actions_add_step(self, step: dict) -> dict:
+        try:
+            norm = actions.normalize_step(step)
+        except (ValueError, KeyError, TypeError) as exc:
+            return {"ok": False, "error": str(exc)}
+        with self._lock:
+            self.actions_steps.append(norm)
+        self._save_actions_steps()
+        return {"ok": True, "steps": self.actions_steps}
+
+    def actions_remove_step(self, index: int) -> dict:
+        with self._lock:
+            if 0 <= index < len(self.actions_steps):
+                self.actions_steps.pop(index)
+        self._save_actions_steps()
+        return {"ok": True, "steps": self.actions_steps}
+
+    def actions_clear(self) -> dict:
+        with self._lock:
+            self.actions_steps = []
+        self._save_actions_steps()
+        return {"ok": True}
+
+    def actions_set_autorun(self, on: bool) -> dict:
+        self.actions_autorun = bool(on)
+        self._update_config(actions_autorun=self.actions_autorun)
+        return {"ok": True}
+
     def get_state(self) -> dict:
         """Single snapshot the frontend polls a few times per second."""
         with self._lock:
@@ -672,6 +721,12 @@ class BridgeApi:
                 "ptt_supported": self.ptt_supported,
                 "ptt_joy_supported": self.ptt_joy_supported,
                 "ptt_is_mac": sys.platform == "darwin",
+                "actions_steps": self.actions_steps,
+                "actions_autorun": self.actions_autorun,
+                "actions_running": self._actions_running,
+                "actions_recording": self._actions_recording,
+                "actions_trigger_label": self._trigger_label(self.actions_trigger),
+                "actions_trigger_set": self.actions_trigger is not None,
             }
 
 

@@ -47,11 +47,14 @@ REQUEST_TIMEOUT = 8
 TOKEN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 TOKEN_LENGTH = 6
 
-SIMULATORS = [
-    {"id": "msfs2020", "label": "MSFS 2020", "available": True},
-    {"id": "msfs2024", "label": "MSFS 2024", "available": False},
-    {"id": "xplane", "label": "X-Plane", "available": False},
-    {"id": "flightgear", "label": "Flightgear", "available": False},
+# Selectable telemetry sources, shown in the dropdown. "(None)" is idle. MSFS
+# availability is resolved at runtime (see BridgeApi._sources_for_ui).
+SOURCES = [
+    {"id": "none", "label": "(None)"},
+    {"id": "dummy", "label": "Dummy flight"},
+    {"id": "msfs2024", "label": "MSFS 2024"},
+    {"id": "msfs2020", "label": "MSFS 2020", "coming_soon": True},
+    {"id": "xplane", "label": "X-Plane", "coming_soon": True},
 ]
 
 WEB_DIR = _resource_dir() / "web"
@@ -90,10 +93,7 @@ class BridgeApi:
     """Exposed to the frontend as `window.pywebview.api`."""
 
     def __init__(self) -> None:
-        from simulator import DummyFlight
-
         self.token = self._load_or_create_token()
-        self.flight = DummyFlight()
 
         # push-to-talk trigger (see the push-to-talk section). Migrate the old
         # single-key `ptt_key` string into the new {"type":"keys",...} shape.
@@ -122,9 +122,10 @@ class BridgeApi:
         # until the user logs in again (we cannot server-side unlink, see logout()).
         self.polling = True
 
-        # local controls
-        self.sim_active = False
-        self.simulator_id = "msfs2020"
+        # active telemetry source (None = idle). Selected via the dropdown.
+        self.source = None
+        self.source_id = "none"
+        self.aircraft: str | None = None
 
         # stream health
         self.last_data_ok_at: float | None = None
@@ -228,29 +229,40 @@ class BridgeApi:
 
     def _stream_loop(self) -> None:
         while not self._stop.is_set():
-            active = self.sim_active and self.connected
-            if active:
+            if self.source is not None and self.connected:
                 self._tick_stream()
             self._stop.wait(STREAM_INTERVAL)
 
+    def _report_status(self, *, sim_connected: bool, flight_active: bool) -> None:
+        try:
+            requests.post(
+                f"{API_URL}/status",
+                headers=self._headers,
+                json={"simConnected": sim_connected, "flightActive": flight_active},
+                timeout=REQUEST_TIMEOUT,
+            )
+        except requests.RequestException:
+            pass
+
     def _tick_stream(self) -> None:
-        sample = self.flight.sample()
+        src = self.source
+        if src is None:
+            return
+        sample = src.sample()
+        if sample is None or not sample.connected:
+            # source dropped (e.g. MSFS closed) — report disconnected, keep idle.
+            with self._lock:
+                self.flight_active = False
+            self._report_status(sim_connected=False, flight_active=False)
+            return
         with self._lock:
             self.last_telemetry = sample.raw
             self.flight_phase = sample.phase
             self.flight_progress = sample.progress
             self.flight_active = sample.flight_active
+            self.aircraft = sample.aircraft
 
-        # report status (sim connected + flight active)
-        try:
-            requests.post(
-                f"{API_URL}/status",
-                headers=self._headers,
-                json={"simConnected": True, "flightActive": sample.flight_active},
-                timeout=REQUEST_TIMEOUT,
-            )
-        except requests.RequestException:
-            pass
+        self._report_status(sim_connected=True, flight_active=sample.flight_active)
 
         # stream telemetry
         try:
@@ -274,7 +286,7 @@ class BridgeApi:
     # ---- stream health -----------------------------------------------------
 
     def _stream_status(self) -> str:
-        if not self.sim_active:
+        if self.source is None:
             return "idle"
         if self.last_data_ok_at is None:
             return "stalling"
@@ -566,42 +578,72 @@ class BridgeApi:
         """
         self.polling = False
         with self._lock:
-            self.sim_active = False
+            src = self.source
+            self.source = None
+            self.source_id = "none"
             self.connected = False
             self.user = None
             self.last_data_ok_at = None
             self.last_telemetry = None
+        if src is not None:
+            try:
+                src.close()
+            except Exception:
+                pass
         self._rotate_token()
         return {"ok": True, "token": self.token}
 
-    def set_sim_active(self, active: bool) -> dict:
-        active = bool(active)
-        with self._lock:
-            self.sim_active = active
-        if active:
-            self.flight.reset()
-            with self._lock:
-                self.last_data_ok_at = None
-        else:
-            # tell the server the sim is gone
-            try:
-                requests.post(
-                    f"{API_URL}/status",
-                    headers=self._headers,
-                    json={"simConnected": False, "flightActive": False},
-                    timeout=REQUEST_TIMEOUT,
-                )
-            except requests.RequestException:
-                pass
-        return {"ok": True, "sim_active": active}
+    def _sources_for_ui(self) -> list[dict]:
+        """Source list with runtime availability for the dropdown."""
+        from msfs_source import msfs_available
+        avail = {"none": True, "dummy": True, "msfs2024": msfs_available()}
+        out = []
+        for s in SOURCES:
+            available = avail.get(s["id"], not s.get("coming_soon", False))
+            out.append({"id": s["id"], "label": s["label"], "available": available})
+        return out
 
-    def set_simulator(self, sim_id: str) -> dict:
-        match = next((s for s in SIMULATORS if s["id"] == sim_id), None)
-        if not match or not match["available"]:
-            return {"ok": False, "error": "Simulator not available yet."}
+    def _make_source(self, source_id: str):
+        if source_id == "dummy":
+            from simulator import DummyFlight
+            return DummyFlight()
+        if source_id == "msfs2024":
+            from msfs_source import MsfsSource
+            return MsfsSource()
+        return None
+
+    def set_source(self, source_id: str) -> dict:
+        """Switch the active telemetry source. 'none' stops streaming."""
+        valid = {s["id"] for s in SOURCES}
+        if source_id not in valid:
+            return {"ok": False, "error": "Unknown source."}
         with self._lock:
-            self.simulator_id = sim_id
-        return {"ok": True, "simulator_id": sim_id}
+            old = self.source
+        if old is not None:
+            try:
+                old.close()
+            except Exception:
+                pass
+            # tell the server the previous sim is gone
+            self._report_status(sim_connected=False, flight_active=False)
+        new = self._make_source(source_id)
+        if new is not None:
+            try:
+                new.open()
+            except Exception as exc:
+                with self._lock:
+                    self.source = None
+                    self.source_id = "none"
+                    self.error = f"Could not start {source_id}: {exc.__class__.__name__}"
+                return {"ok": False, "error": self.error}
+        with self._lock:
+            self.source = new
+            self.source_id = source_id
+            self.aircraft = None
+            self.error = None
+            self.last_telemetry = None
+            self.last_data_ok_at = None
+        return {"ok": True, "source_id": source_id}
 
     def get_state(self) -> dict:
         """Single snapshot the frontend polls a few times per second."""
@@ -612,9 +654,9 @@ class BridgeApi:
                 "user": self.user,
                 "pm_url": self.pm_url,
                 "pm_qr_svg": self.pm_qr_svg,
-                "sim_active": self.sim_active,
-                "simulator_id": self.simulator_id,
-                "simulators": SIMULATORS,
+                "source_id": self.source_id,
+                "sources": self._sources_for_ui(),
+                "aircraft": self.aircraft,
                 "stream_status": self._stream_status(),
                 "telemetry": self.last_telemetry,
                 "flight_phase": self.flight_phase,

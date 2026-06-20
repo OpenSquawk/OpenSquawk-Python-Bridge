@@ -157,9 +157,24 @@ function renderPtt(state) {
   $("ptt-perm").classList.toggle("hidden", !(state.ptt_is_mac && state.ptt_set));
 }
 
+// Mirror the backend's _pretty_key: turn an identity string ("char:m",
+// "key:ctrl_l", "vk:65") into a readable label for the step list.
+function prettyKey(identity) {
+  const i = identity.indexOf(":");
+  const kind = i === -1 ? identity : identity.slice(0, i);
+  const value = i === -1 ? "" : identity.slice(i + 1);
+  if (kind === "char") return value.toUpperCase();
+  if (kind === "key") return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  if (kind === "vk") {
+    const ch = String.fromCharCode(parseInt(value, 10));
+    return /\S/.test(ch) ? ch.toUpperCase() : `Key ${value}`;
+  }
+  return identity;
+}
+
 function stepLabel(s) {
   if (s.type === "wait") return `Wait ${s.seconds}s`;
-  if (s.type === "key") return `Key ${s.keys.join(" + ")}`;
+  if (s.type === "key") return `Key ${s.keys.map(prettyKey).join(" + ")}`;
   if (s.type === "click") return `Click ${s.button} @ ${s.x},${s.y}`;
   return s.type;
 }

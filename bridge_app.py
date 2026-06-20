@@ -750,21 +750,75 @@ def _apply_runtime_icon(*_args) -> None:
         print(f"[icon] could not set runtime app icon: {exc}")
 
 
-def main() -> None:
+def _log_startup_error() -> Path | None:
+    """Write the active traceback to a logfile for remote diagnosis.
+
+    On user machines the `--windowed` build has no console, so this file is often
+    the only artifact we can ask a non-technical user to send us. Best effort.
+    """
+    import traceback
+
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        log = CONFIG_DIR / "bridge-error.log"
+        log.write_text(
+            f"{APP_NAME} failed to start\n"
+            f"{time.strftime('%Y-%m-%d %H:%M:%S')}  platform={sys.platform}\n\n"
+            f"{traceback.format_exc()}",
+            encoding="utf-8",
+        )
+        return log
+    except Exception:  # pragma: no cover - best effort
+        return None
+
+
+def _preflight() -> tuple[list[str], bool]:
+    """Check everything the app needs before opening a window.
+
+    Returns (problems, webview2_missing). Each problem is a ready-to-show,
+    actionable line. An empty list means we're good to go. We collect *all*
+    issues at once so the user fixes them in one pass instead of one-by-one.
+    """
+    problems: list[str] = []
+
+    # The bundled frontend must be present, or the window opens blank. A missing
+    # index.html almost always means the build didn't include the web/ assets.
+    index = WEB_DIR / "index.html"
+    if not index.exists():
+        problems.append(
+            f"• Die UI-Dateien fehlen ({index}).\n"
+            "  Der Build ist unvollständig — bitte mit 'python build.py' neu bauen."
+        )
+
+    # Windows renders the UI through the Edge WebView2 runtime; without it the
+    # window backend cannot start at all.
+    webview2_missing = not _webview2_installed()
+    if webview2_missing:
+        problems.append(
+            "• Microsoft Edge WebView2-Runtime fehlt.\n"
+            "  Auf Windows 11 vorinstalliert; auf Windows 10 einmalig installieren\n"
+            f"  (\"Evergreen Bootstrapper\"): {WEBVIEW2_DOWNLOAD_URL}"
+        )
+
+    return problems, webview2_missing
+
+
+def _run() -> None:
+    """Build the window and run the UI loop. Raises on any startup failure."""
     _apply_macos_app_name()  # set the app/menu name before the UI builds its menu
 
-    # On Windows the UI can't render without the WebView2 runtime. Catch the
-    # common case early with a clear, actionable dialog instead of a silent crash.
-    if not _webview2_installed():
+    # Verify prerequisites up front and report *what* is missing and *how* to fix
+    # it, instead of letting the window backend crash with no explanation.
+    problems, webview2_missing = _preflight()
+    if problems:
         _windows_message_box(
-            f"{APP_NAME} benötigt die Microsoft Edge WebView2-Runtime, "
-            "die auf diesem PC fehlt.\n\n"
-            "Sie ist auf Windows 11 vorinstalliert; auf Windows 10 muss sie "
-            "einmalig nachinstalliert werden.\n\n"
-            "Wir öffnen jetzt die Download-Seite. Installiere die "
-            "\"Evergreen Bootstrapper\"-Version und starte die App danach erneut.",
+            f"{APP_NAME} kann noch nicht starten — Folgendes fehlt:\n\n"
+            + "\n\n".join(problems)
+            + "\n\nBitte beheben und die App erneut starten."
         )
-        webbrowser.open(WEBVIEW2_DOWNLOAD_URL, new=2)
+        if webview2_missing:
+            # one-click: take the user straight to the download
+            webbrowser.open(WEBVIEW2_DOWNLOAD_URL, new=2)
         return
 
     api = BridgeApi()
@@ -788,22 +842,28 @@ def main() -> None:
 
     # `icon` is honoured by the GTK/Qt backends; ignored (harmlessly) elsewhere.
     try:
-        try:
-            webview.start(icon=str(ICON_PNG))
-        except TypeError:
-            # older pywebview without the `icon` kwarg
-            webview.start()
+        webview.start(icon=str(ICON_PNG))
+    except TypeError:
+        # older pywebview without the `icon` kwarg
+        webview.start()
+
+
+def main() -> None:
+    # One catch-all around the whole startup: BridgeApi init, window creation and
+    # the backend's event loop. Daemon threads die with the process, so a failed
+    # start needs no extra cleanup — just make the error visible (the --windowed
+    # build has no console) and persisted for remote diagnosis.
+    try:
+        _run()
     except Exception as exc:
-        # The window backend failed to start (e.g. a WebView2/runtime problem we
-        # could not detect up front). The `--windowed` build has no console, so
-        # show the real error instead of vanishing.
-        api._stop.set()
-        api._stop_ptt_listener()
+        log = _log_startup_error()
+        details = f"\n\nDetails: {log}" if log else ""
         _windows_message_box(
-            f"{APP_NAME} konnte das Fenster nicht öffnen.\n\n"
+            f"{APP_NAME} konnte nicht starten.\n\n"
             f"{exc.__class__.__name__}: {exc}\n\n"
-            "Auf Windows ist dafür meist die fehlende Microsoft Edge "
-            f"WebView2-Runtime verantwortlich:\n{WEBVIEW2_DOWNLOAD_URL}",
+            "Auf Windows ist die häufigste Ursache die fehlende Microsoft Edge "
+            f"WebView2-Runtime:\n{WEBVIEW2_DOWNLOAD_URL}"
+            f"{details}",
         )
         raise
 

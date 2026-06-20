@@ -55,3 +55,24 @@ def record_to_steps(events: list[tuple[float, dict]], min_gap: float = 0.1) -> l
         out.append(normalize_step(step))
         prev_ts = ts
     return out
+
+
+def run_steps(
+    steps: list[dict],
+    backend,
+    should_stop: Callable[[], bool] | None = None,
+) -> None:
+    """Execute `steps` against `backend`. `backend` must provide send_keys(keys),
+    click(x, y, button) and sleep(seconds). Checked between steps, `should_stop`
+    lets a caller abort a running chain.
+    """
+    for step in steps:
+        if should_stop is not None and should_stop():
+            return
+        kind = step["type"]
+        if kind == "wait":
+            backend.sleep(step["seconds"])
+        elif kind == "key":
+            backend.send_keys(step["keys"])
+        elif kind == "click":
+            backend.click(step["x"], step["y"], step["button"])

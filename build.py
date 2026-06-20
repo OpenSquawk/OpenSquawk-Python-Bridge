@@ -92,6 +92,11 @@ def main() -> int:
         # them unless we pull in all submodules explicitly.
         "--collect-submodules", "pynput",
         "--collect-submodules", "pygame",
+        # SimConnect bundles its own SimConnect.dll and loads it at runtime via
+        # LoadLibrary (not an import), so PyInstaller won't see it. --collect-all
+        # pulls the package's DLL/data in; without it the packaged build can't
+        # connect to MSFS. (Harmless on macOS/Linux — the DLL just never loads.)
+        "--collect-all", "SimConnect",
     ]
 
     if system == "Windows":

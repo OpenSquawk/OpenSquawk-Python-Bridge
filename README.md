@@ -39,6 +39,16 @@ SimConnect / X-Plane connector later only means swapping out `simulator.py`.
   takeoff → cruise → landing trajectory and highlights the current phase
   (Parked → Taxi → Takeoff → Climb → Cruise → Descent → Approach → Landing →
   Rollout).
+- **Push-to-talk hotkey (collapsible)** — bind a key, key combo, or
+  joystick/HOTAS button to transmit from anywhere; hold it while flying and the
+  radio on this PC records even when the simulator is in front.
+- **Flight actions (collapsible)** — replay a chain of *wait / key / click*
+  steps, fired automatically when a new flight is detected (sim connected +
+  aircraft loaded, once per session) or on a global hotkey / joystick button.
+  Add steps by hand or **Record** your real key presses and clicks (the pauses
+  between them become wait steps). Clicks use absolute screen coordinates, so
+  keep the same window layout you recorded with. Steps and the trigger persist
+  in `~/.opensquawk-bridge/config.json`.
 
 The app has two screens: the **login screen** (with the pairing code) when not
 linked, and the **main screen** once linked, with a sign-out button in the top-

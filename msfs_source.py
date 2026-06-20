@@ -28,10 +28,15 @@ def classify_aircraft(title: str) -> str:
     low = t.lower()
     if "fnx" in low or "fenix" in low:
         return "Fenix A320"
-    if "a380" in low and ("flybywire" in low or "fbw" in low):
+    # Only the FlyByWire markers identify the mod — NOT "a320neo", since the
+    # stock Asobo aircraft is also an A320neo and would be misclassified.
+    fbw = "flybywire" in low or "fbw" in low or "a32nx" in low
+    if fbw and "a380" in low:
         return "FlyByWire A380X"
-    if "flybywire" in low or "fbw" in low or "a32nx" in low or "a320neo" in low:
+    if fbw:
         return "FlyByWire A32NX"
+    if "asobo" in low and "a320" in low.replace(" ", ""):
+        return "Airbus A320neo (Asobo)"
     return t
 
 

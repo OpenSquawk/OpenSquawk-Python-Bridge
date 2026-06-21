@@ -128,7 +128,7 @@ class BridgeApi:
         self._actions_running = False
         self._actions_recording = False
         self._record_events: list = []
-        self._actions_backend = None  # lazily built actions.PynputBackend
+        self._actions_backend = self._init_actions_backend()
         self._session_armed = False   # True once we've auto-fired for the current session
         self._actions_combo_down = False  # edge-detect for the actions hotkey (Task 7)
 
@@ -751,6 +751,30 @@ class BridgeApi:
 
     # ---- flight actions ----------------------------------------------------
 
+    def _init_actions_backend(self):
+        """Create the pynput backend on the main thread.
+
+        On macOS pynput uses pyobjc (Quartz/AppKit) which must be accessed from
+        the main thread during initialisation. Creating it lazily in the runner
+        daemon thread causes a native crash that bypasses Python's except handler.
+        """
+        try:
+            return actions.PynputBackend()
+        except Exception as exc:
+            print(f"[actions] PynputBackend unavailable: {exc.__class__.__name__}: {exc}")
+            return None
+
+    def _log_actions_error(self, msg: str) -> None:
+        """Write an actions runtime error to the log file and print it."""
+        print(msg)
+        try:
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            log = CONFIG_DIR / "bridge-error.log"
+            with log.open("a", encoding="utf-8") as f:
+                f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {msg}\n")
+        except Exception:
+            pass
+
     def _save_actions_steps(self) -> None:
         self._update_config(actions_steps=self.actions_steps)
 
@@ -845,13 +869,19 @@ class BridgeApi:
         print(f"[actions] running chain ({reason}, {len(self.actions_steps)} steps)")
         try:
             if self._actions_backend is None:
-                self._actions_backend = actions.PynputBackend()
+                self._log_actions_error(
+                    "[actions] no input backend — pynput may be unavailable or "
+                    "failed to initialise (check bridge-error.log)"
+                )
+                return
             steps = list(self.actions_steps)
             actions.run_steps(
                 steps, self._actions_backend, should_stop=lambda: not self._actions_running
             )
         except Exception as exc:  # pragma: no cover - real-input path
-            print(f"[actions] run failed ({exc.__class__.__name__}: {exc})")
+            self._log_actions_error(
+                f"[actions] run failed ({exc.__class__.__name__}: {exc})"
+            )
         finally:
             with self._lock:
                 self._actions_running = False
@@ -901,6 +931,7 @@ class BridgeApi:
                 "actions_recording": self._actions_recording,
                 "actions_trigger_label": self._trigger_label(self.actions_trigger),
                 "actions_trigger_set": self.actions_trigger is not None,
+                "actions_backend_ok": self._actions_backend is not None,
             }
 
 

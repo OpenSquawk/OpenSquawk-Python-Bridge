@@ -19,6 +19,33 @@ function api() {
 function $(id) { return document.getElementById(id); }
 function setText(id, value) { const el = $(id); if (el) el.textContent = value; }
 
+// ---- inline icon set (Lucide-style strokes) --------------------------------
+const ICON = {
+  plane: '<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>',
+  ban: '<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6 18.4 18.4"/>',
+  box: '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+  x: '<path d="M6 6 18 18M18 6 6 18"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
+  plug: '<path d="M12 22v-5M9 8V2M15 8V2"/><path d="M18 8v3a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z"/>',
+  pin: '<path d="M12 21s7-6.6 7-11a7 7 0 1 0-14 0c0 4.4 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>',
+  keyboard: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',
+  joystick: '<circle cx="12" cy="7" r="4"/><path d="M12 11v3"/><path d="M7 21h10l-1.4-7H8.4z"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  mouse: '<rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 7v4"/>',
+  trash: '<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>',
+  record: '<circle cx="12" cy="12" r="8"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+};
+function svg(name, extra) {
+  return '<svg class="ico' + (extra ? ' ' + extra : '') + '" viewBox="0 0 24 24" fill="none" '
+    + 'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+    + (ICON[name] || '') + '</svg>';
+}
+const SIM_ICON = { none: "ban", dummy: "box", msfs2024: "plane", msfs2020: "plane", xplane: "x", flightgear: "gear" };
+const TRIG_ICON = { app_start: "power", sim: "plug", aircraft: "plane", gps_jump: "pin", key: "keyboard", joy: "joystick" };
+const STEP_ICON = { wait: "clock", key: "keyboard", click: "mouse" };
+
 // ---- flight profile path ---------------------------------------------------
 const PROFILE_POINTS = [
   [0, 200], [120, 198], [200, 175], [360, 70], [560, 40],
@@ -76,21 +103,44 @@ function updatePlane(progress, phase) {
 // ---- rendering helpers -----------------------------------------------------
 
 let simsSig = "";
+let simMenuOpen = false;
 function renderSimulators(state) {
   const sources = state.sources || [];
   const sig = JSON.stringify(sources.map((s) => [s.id, s.available])) + "|" + state.source_id;
   if (sig === simsSig) return;            // only re-render on real change
   simsSig = sig;
-  const sel = $("sim-select");
-  sel.innerHTML = "";
+
+  const cur = sources.find((s) => s.id === state.source_id) || sources[0] || { id: "none", label: "(None)" };
+  $("sim-cur").innerHTML = svg(SIM_ICON[cur.id] || "plane")
+    + `<span class="cs-label">${escapeHtml(cur.label)}</span>`;
+
+  const menu = $("sim-menu");
+  menu.innerHTML = "";
   sources.forEach((s) => {
-    const opt = document.createElement("option");
-    opt.value = s.id;
-    opt.textContent = s.available ? s.label : `${s.label} (coming soon)`;
-    opt.disabled = !s.available;
-    if (s.id === state.source_id) opt.selected = true;
-    sel.appendChild(opt);
+    const li = document.createElement("li");
+    li.className = "cselect-opt"
+      + (s.id === state.source_id ? " sel" : "")
+      + (s.available ? "" : " disabled");
+    li.setAttribute("role", "option");
+    li.dataset.id = s.id;
+    li.dataset.available = s.available ? "1" : "0";
+    li.innerHTML = svg(SIM_ICON[s.id] || "plane")
+      + `<span class="cs-label">${escapeHtml(s.label)}</span>`
+      + (s.available ? "" : '<span class="cs-soon">soon</span>')
+      + (s.id === state.source_id ? svg("check", "cs-check") : "");
+    menu.appendChild(li);
   });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function setSimMenu(open) {
+  simMenuOpen = open;
+  $("sim-menu").classList.toggle("hidden", !open);
+  $("sim-select").dataset.open = open ? "true" : "false";
+  $("sim-btn").setAttribute("aria-expanded", String(open));
 }
 
 function renderQr(state) {
@@ -101,6 +151,29 @@ function renderQr(state) {
     qrRendered = true;
   } else {
     box.innerHTML = '<span class="qr-ph">no QR</span>';
+  }
+}
+
+function userInitials(name) {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  const ini = parts.slice(0, 2).map((p) => p[0].toUpperCase()).join("");
+  return ini || "?";
+}
+
+function renderUser(user) {
+  $("user-chip").classList.remove("hidden");
+  setText("user-name", user.name || "Pilot");
+  const av = $("user-avatar");
+  const img = user.avatar || user.avatar_url || user.image || user.picture || user.photo;
+  if (img) {
+    av.style.backgroundImage = `url("${img}")`;
+    av.classList.add("has-img");
+    av.textContent = "";
+  } else {
+    av.style.backgroundImage = "";
+    av.classList.remove("has-img");
+    av.textContent = userInitials(user.name);
   }
 }
 
@@ -119,15 +192,11 @@ function renderPtt(state) {
   else if (pttCapturing === "joy") setText("ptt-key", "Press a joystick button…");
   else setText("ptt-key", state.ptt_key_label);
 
-  // Status tag: live TX while transmitting, else ARMED / OFF.
-  const tag = $("ptt-status");
-  if (state.ptt_active) {
-    tag.textContent = "TX"; tag.className = "tag tag-tx";
-  } else if (state.ptt_set && !capturing) {
-    tag.textContent = "ARMED"; tag.className = "tag tag-green";
-  } else {
-    tag.textContent = "OFF"; tag.className = "tag tag-grey";
-  }
+  // Header status dot: live TX while transmitting, else ARMED / OFF.
+  const dot = $("ptt-dot");
+  if (state.ptt_active) dot.className = "hdot hdot-red";
+  else if (state.ptt_set && !capturing) dot.className = "hdot hdot-green";
+  else dot.className = "hdot hdot-grey";
 
   // Live "Transmitting…" banner — proves the trigger is recognised even before
   // anything reaches the browser.
@@ -187,11 +256,17 @@ function activeChain(state) {
   return chains.find((c) => c.id === state.actions_active_id) || chains[0] || null;
 }
 
+function chainDotClass(c, state) {
+  if (state.actions_recording_id === c.id) return "act-tab-dot amber";
+  if (!(c.enabled && c.trigger)) return "act-tab-dot";
+  return "act-tab-dot green";
+}
+
 let actTabsSig = "";
 function renderActionTabs(state) {
   const chains = state.actions_chains || [];
-  const sig = JSON.stringify(chains.map((c) => [c.id, c.name, c.enabled]))
-    + "|" + state.actions_active_id;
+  const sig = JSON.stringify(chains.map((c) => [c.id, c.name, c.enabled, !!c.trigger]))
+    + "|" + state.actions_active_id + "|" + state.actions_recording_id;
   if (sig === actTabsSig) return;
   actTabsSig = sig;
   const tabs = $("act-tabs");
@@ -202,7 +277,12 @@ function renderActionTabs(state) {
       + (c.id === state.actions_active_id ? " active" : "")
       + (c.enabled ? "" : " off");
     b.dataset.id = c.id;
-    b.textContent = c.name || "Action";
+    const dot = document.createElement("span");
+    dot.className = chainDotClass(c, state);
+    const name = document.createElement("span");
+    name.className = "act-tab-name";
+    name.textContent = c.name || "Action";
+    b.append(dot, name);
     tabs.appendChild(b);
   });
   const add = document.createElement("button");
@@ -223,12 +303,12 @@ function renderActions(state) {
 
   const running = state.actions_running;
   const recording = !!state.actions_recording_id;
-  const tag = $("act-tag");
+  const dot = $("act-dot");
   const anyArmed = chains.some((c) => c.enabled && c.trigger);
-  if (running) { tag.textContent = "RUN"; tag.className = "tag tag-tx"; }
-  else if (recording) { tag.textContent = "REC"; tag.className = "tag tag-amber"; }
-  else if (anyArmed) { tag.textContent = "ARMED"; tag.className = "tag tag-green"; }
-  else { tag.textContent = "OFF"; tag.className = "tag tag-grey"; }
+  if (running) dot.className = "hdot hdot-cyan";
+  else if (recording) dot.className = "hdot hdot-amber";
+  else if (anyArmed) dot.className = "hdot hdot-green";
+  else dot.className = "hdot hdot-grey";
 
   if (!chain) { actStepsSig = ""; actCapturing = null; return; }
 
@@ -240,14 +320,25 @@ function renderActions(state) {
   $("act-enabled").checked = !!chain.enabled;
 
   setText("act-trigger", capturing
-    ? (actCapturing === "joy" ? "Press a joystick button…" : "Press a key or combo…")
-    : (chain.trigger_label || "Not set"));
-  $("act-hook-select").value = chain.trigger_hook || "";
-  $("act-clear-trigger").classList.toggle("hidden", !chain.trigger);
-  $("act-set-key").textContent = actCapturing === "key" ? "Cancel" : "Set key";
-  $("act-set-joy").textContent = actCapturing === "joy" ? "Cancel" : "Set joystick";
+    ? (actCapturing === "joy" ? "press a joystick button…" : "press a key or combo…")
+    : (chain.trigger ? (chain.trigger_label || "") : "none"));
+
+  // highlight the active trigger tile (hook, or key/joy)
+  const hook = chain.trigger_hook;
+  const tkind = chain.trigger && chain.trigger.type; // 'hook' | 'keys' | 'joy'
+  document.querySelectorAll("#act-trig-grid .trig").forEach((el) => {
+    const elHook = el.dataset.hook, elCap = el.dataset.cap;
+    let active = false;
+    if (elHook) active = tkind === "hook" && hook === elHook;
+    else if (elCap === "key") active = tkind === "keys";
+    else if (elCap === "joy") active = tkind === "joy";
+    el.classList.toggle("active", active && !capturing);
+    el.classList.toggle("capturing",
+      capturing && ((elCap === "key" && actCapturing === "key") || (elCap === "joy" && actCapturing === "joy")));
+  });
 
   const steps = chain.steps || [];
+  $("act-steps-empty").classList.toggle("hidden", steps.length > 0);
   const sig = chain.id + "|" + JSON.stringify(steps);
   if (sig !== actStepsSig) {
     actStepsSig = sig;
@@ -256,18 +347,18 @@ function renderActions(state) {
     steps.forEach((s, i) => {
       const li = document.createElement("li");
       li.className = "act-step";
-      const span = document.createElement("span");
-      span.textContent = stepLabel(s);
-      const del = document.createElement("button");
-      del.className = "act-del"; del.textContent = "✕"; del.dataset.i = i;
-      li.append(span, del);
+      li.innerHTML =
+        `<span class="step-no">${i + 1}</span>` +
+        `<span class="step-ico">${svg(STEP_ICON[s.type] || "clock")}</span>` +
+        `<span class="step-txt">${escapeHtml(stepLabel(s))}</span>` +
+        `<button class="act-del" data-i="${i}" title="Remove step">${svg("trash")}</button>`;
       list.appendChild(li);
     });
   }
 
   const recordingThis = state.actions_recording_id === chain.id;
-  $("act-record").textContent = recordingThis ? "Stop recording" : "Record";
-  $("act-record").classList.toggle("btn-ghost", recordingThis);
+  setText("act-record-lbl", recordingThis ? "Stop" : "Record");
+  $("act-record").classList.toggle("recording", recordingThis);
   $("act-run").textContent = running ? "Stop" : "Run now";
   $("act-clear").classList.toggle("hidden", steps.length === 0);
 }
@@ -278,19 +369,15 @@ function render(state) {
   // pairing code (login view)
   setText("code-digits", state.token || "······");
 
-  // connection pill + view switch
+  // connection pill / user chip + view switch
   const connPill = $("conn-pill");
   if (state.connected && state.user) {
-    connPill.textContent = state.user.name || "Linked";
-    connPill.className = "pill pill-ok";
+    connPill.classList.add("hidden");
+    renderUser(state.user);
     showView(true);
     renderQr(state);
-    // simulator / source status
+    // simulator / source status (shown by the stream row below, no header chip)
     const active = state.source_id && state.source_id !== "none";
-    const connected = active && state.stream_status === "streaming";
-    const simTag = $("sim-status");
-    simTag.textContent = connected ? "CONNECTED" : (active ? "CONNECTING" : "DISCONNECTED");
-    simTag.className = connected ? "tag tag-green" : (active ? "tag tag-amber" : "tag tag-grey");
     $("sim-aircraft").textContent = state.aircraft || (active ? "Detecting aircraft…" : "—");
 
     // stream status
@@ -320,7 +407,7 @@ function render(state) {
 
     const phaseTag = $("phase-tag");
     phaseTag.textContent = (state.flight_phase || "PARKED").toUpperCase();
-    phaseTag.className = active ? "tag tag-cyan" : "tag tag-grey";
+    phaseTag.style.color = active ? "var(--cyan-bright)" : "";
     updatePlane(state.flight_progress || 0, state.flight_phase || "Parked");
 
     renderPtt(state);
@@ -328,6 +415,7 @@ function render(state) {
   } else {
     connPill.textContent = "Not linked";
     connPill.className = "pill pill-muted";
+    $("user-chip").classList.add("hidden");
     showView(false);
     $("login-waiting").classList.toggle("hidden", !loginClicked);
   }
@@ -387,7 +475,20 @@ function wireEvents() {
   });
   $("ptt-clear-btn").addEventListener("click", () => api().ptt_clear());
   $("ptt-perm-btn").addEventListener("click", () => api().open_input_monitoring());
-  $("sim-select").addEventListener("change", (e) => api().set_source(e.target.value));
+
+  // custom simulator dropdown
+  $("sim-btn").addEventListener("click", (e) => { e.stopPropagation(); setSimMenu(!simMenuOpen); });
+  $("sim-menu").addEventListener("click", (e) => {
+    const opt = e.target.closest(".cselect-opt");
+    if (!opt) return;
+    if (opt.dataset.available === "0") return;     // coming soon → not selectable
+    setSimMenu(false);
+    if (opt.dataset.id !== undefined) { simsSig = ""; api().set_source(opt.dataset.id); }
+  });
+  document.addEventListener("click", (e) => {
+    if (simMenuOpen && !e.target.closest("#sim-select")) setSimMenu(false);
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && simMenuOpen) setSimMenu(false); });
   $("ptt-head").addEventListener("click", () => {
     const open = !$("ptt-body").classList.toggle("hidden");
     $("ptt-head").setAttribute("aria-expanded", String(open));
@@ -417,24 +518,19 @@ function wireEvents() {
       api().actions_remove_chain(actActiveId); actTabsSig = ""; actStepsSig = "";
     }
   });
-  $("act-hook-select").addEventListener("change", (e) => {
-    if (!actActiveId) return;
-    if (e.target.value) api().actions_set_trigger_hook(actActiveId, e.target.value);
-    else api().actions_clear_trigger(actActiveId);
-    actTabsSig = "";
-  });
-  $("act-set-key").addEventListener("click", () => {
-    if (!actActiveId) return;
-    if (actCapturing === "key") api().actions_cancel_capture();
-    else api().actions_capture_trigger(actActiveId, "key");
-  });
-  $("act-set-joy").addEventListener("click", () => {
-    if (!actActiveId) return;
-    if (actCapturing === "joy") api().actions_cancel_capture();
-    else api().actions_capture_trigger(actActiveId, "joy");
-  });
-  $("act-clear-trigger").addEventListener("click", () => {
-    if (actActiveId) { api().actions_clear_trigger(actActiveId); actTabsSig = ""; }
+  // trigger picker grid: hooks toggle, key/joy arm capture
+  $("act-trig-grid").addEventListener("click", (e) => {
+    const t = e.target.closest(".trig");
+    if (!t || !actActiveId) return;
+    if (t.dataset.hook) {
+      if (t.classList.contains("active")) api().actions_clear_trigger(actActiveId);  // click active → clear
+      else api().actions_set_trigger_hook(actActiveId, t.dataset.hook);
+      actTabsSig = "";
+    } else if (t.dataset.cap) {
+      const kind = t.dataset.cap;
+      if (actCapturing === kind) api().actions_cancel_capture();
+      else api().actions_capture_trigger(actActiveId, kind);
+    }
   });
   $("act-add-wait").addEventListener("click", () => {
     if (!actActiveId) return;
@@ -462,16 +558,31 @@ function wireEvents() {
     if (actActiveId && confirm("Clear all steps?")) { api().actions_clear_steps(actActiveId); actStepsSig = ""; }
   });
   $("act-steps").addEventListener("click", (e) => {
-    if (actActiveId && e.target.classList.contains("act-del")) {
-      api().actions_remove_step(actActiveId, parseInt(e.target.dataset.i, 10)); actStepsSig = "";
+    const del = e.target.closest(".act-del");
+    if (actActiveId && del) {
+      api().actions_remove_step(actActiveId, parseInt(del.dataset.i, 10)); actStepsSig = "";
     }
   });
+}
+
+function initStaticIcons() {
+  document.querySelectorAll("#act-trig-grid .trig").forEach((t) => {
+    const key = t.dataset.hook || t.dataset.cap;
+    const holder = t.querySelector(".trig-ico");
+    if (holder && TRIG_ICON[key]) holder.innerHTML = svg(TRIG_ICON[key]);
+  });
+  const tile = (id, name) => { const el = $(id)?.querySelector(".tile-ico"); if (el) el.innerHTML = svg(name); };
+  tile("act-add-wait", "clock");
+  tile("act-add-click", "mouse");
+  tile("act-record", "record");
+  const del = $("act-delete"); if (del) del.innerHTML = svg("trash");
 }
 
 window.addEventListener("pywebviewready", () => { apiReady = true; });
 
 document.addEventListener("DOMContentLoaded", () => {
   initProfile();
+  initStaticIcons();
   wireEvents();
   if (window.pywebview && window.pywebview.api) apiReady = true;
   setInterval(tick, 300);

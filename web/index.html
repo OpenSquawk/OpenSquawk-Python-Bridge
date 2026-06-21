@@ -19,6 +19,10 @@
       <span class="brand-sub">Bridge</span>
     </div>
     <div class="appbar-right">
+      <div id="user-chip" class="user-chip hidden">
+        <span class="avatar" id="user-avatar"></span>
+        <span class="user-name" id="user-name">Pilot</span>
+      </div>
       <span id="conn-pill" class="pill pill-muted">Not linked</span>
       <button id="logout-btn" class="icon-btn hidden" title="Sign out">⏻</button>
     </div>
@@ -65,7 +69,6 @@
       <article class="panel launch">
         <div class="panel-head">
           <span class="panel-title">Live ATC</span>
-          <span class="tag tag-cyan">READY</span>
         </div>
         <p class="panel-text">Open the push-to-talk radio to talk to ATC.</p>
         <div class="launch-row">
@@ -82,7 +85,7 @@
         <button class="panel-head collapse-head" id="ptt-head" aria-expanded="false">
           <span class="panel-title">Push-to-talk hotkey</span>
           <span class="head-right">
-            <span id="ptt-status" class="tag tag-grey">OFF</span>
+            <span id="ptt-dot" class="hdot hdot-grey"></span>
             <span class="chevron" id="ptt-chevron">▾</span>
           </span>
         </button>
@@ -127,10 +130,15 @@
       <article class="panel">
         <div class="panel-head">
           <span class="panel-title">Simulator</span>
-          <span id="sim-status" class="tag tag-grey">DISCONNECTED</span>
         </div>
-        <select id="sim-select" class="select"></select>
-        <div class="row-sub" id="sim-aircraft" style="margin-top:8px;">—</div>
+        <div class="cselect" id="sim-select">
+          <button type="button" class="cselect-btn" id="sim-btn" aria-haspopup="listbox" aria-expanded="false">
+            <span class="cselect-cur" id="sim-cur"></span>
+            <svg class="cselect-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <ul class="cselect-menu hidden" id="sim-menu" role="listbox"></ul>
+        </div>
+        <div class="row-sub sim-aircraft" id="sim-aircraft">—</div>
 
         <div class="stream-row">
           <span id="stream-dot" class="dot dot-grey"></span>
@@ -143,7 +151,7 @@
         <button class="panel-head collapse-head" id="act-head" aria-expanded="false">
           <span class="panel-title">Flight actions</span>
           <span class="head-right">
-            <span id="act-tag" class="tag tag-grey">OFF</span>
+            <span id="act-dot" class="hdot hdot-grey"></span>
             <span class="chevron" id="act-chevron">▾</span>
           </span>
         </button>
@@ -151,8 +159,8 @@
         <div id="act-body" class="collapse-body hidden">
           <p class="panel-text">
             Replay chains of key presses and clicks. Each tab is one chain bound
-            to a trigger — app start, sim/aircraft detected, a GPS jump, or a
-            hotkey. Clicks use absolute screen positions, so keep the same layout.
+            to a trigger. Clicks use absolute screen positions, so keep the same
+            window layout.
           </p>
 
           <!-- tab strip: one tab per chain, plus add -->
@@ -160,49 +168,42 @@
 
           <!-- empty state -->
           <div id="act-empty" class="act-empty hidden">
-            <p class="panel-text">No actions yet.</p>
+            <p class="act-empty-text">No actions yet — create one and bind it to a trigger.</p>
             <button id="act-add-empty" class="btn btn-small">+ New action</button>
           </div>
 
           <!-- editor for the active chain -->
           <div id="act-editor" class="act-editor hidden">
             <div class="act-meta">
-              <input id="act-name" class="input" type="text" placeholder="Name" />
-              <label class="act-enable">
-                <input type="checkbox" id="act-enabled" /><span>Enabled</span>
+              <input id="act-name" class="act-name-input" type="text" placeholder="Untitled action" />
+              <label class="switch act-switch" title="Enabled">
+                <input type="checkbox" id="act-enabled" /><span class="slider"></span>
               </label>
-              <button id="act-delete" class="btn btn-small btn-ghost">Delete</button>
+              <button id="act-delete" class="iconbtn iconbtn-danger" title="Delete action"></button>
             </div>
 
-            <div class="row act-trigger-row">
-              <div class="row-text">
-                <div class="row-title">Trigger</div>
-                <div class="row-sub" id="act-trigger">Not set</div>
-              </div>
-              <div class="act-trigger-ctl">
-                <select id="act-hook-select" class="select select-sm">
-                  <option value="">— Custom / none —</option>
-                  <option value="app_start">On app start</option>
-                  <option value="sim">On sim detected</option>
-                  <option value="aircraft">On aircraft detected</option>
-                  <option value="gps_jump">On GPS jump</option>
-                </select>
-                <button id="act-set-key" class="btn btn-small">Set key</button>
-                <button id="act-set-joy" class="btn btn-small">Set joystick</button>
-                <button id="act-clear-trigger" class="btn btn-small btn-ghost hidden">Clear</button>
-              </div>
+            <div class="field-label">Trigger <span class="act-trig-label" id="act-trigger"></span></div>
+            <div class="trig-grid" id="act-trig-grid">
+              <button class="trig" data-hook="app_start"><span class="trig-ico"></span><span>App start</span></button>
+              <button class="trig" data-hook="sim"><span class="trig-ico"></span><span>Sim ready</span></button>
+              <button class="trig" data-hook="aircraft"><span class="trig-ico"></span><span>Aircraft</span></button>
+              <button class="trig" data-hook="gps_jump"><span class="trig-ico"></span><span>GPS jump</span></button>
+              <button class="trig" data-cap="key" id="act-set-key"><span class="trig-ico"></span><span>Key</span></button>
+              <button class="trig" data-cap="joy" id="act-set-joy"><span class="trig-ico"></span><span>Joystick</span></button>
             </div>
 
+            <div class="field-label">Steps</div>
             <ol id="act-steps" class="act-steps"></ol>
+            <p id="act-steps-empty" class="act-steps-empty hidden">No steps yet — add or record some below.</p>
 
             <div class="act-add">
-              <button id="act-add-wait" class="btn btn-small">+ Wait</button>
-              <button id="act-add-click" class="btn btn-small">+ Click</button>
+              <button id="act-add-wait" class="btn btn-small btn-tile"><span class="tile-ico"></span>Wait</button>
+              <button id="act-add-click" class="btn btn-small btn-tile"><span class="tile-ico"></span>Click</button>
+              <button id="act-record" class="btn btn-small btn-tile"><span class="tile-ico"></span><span id="act-record-lbl">Record</span></button>
             </div>
 
-            <div class="ptt-actions">
-              <button id="act-record" class="btn btn-small">Record</button>
-              <button id="act-run" class="btn btn-small">Run now</button>
+            <div class="act-foot">
+              <button id="act-run" class="btn btn-small act-run">Run now</button>
               <button id="act-clear" class="btn btn-small btn-ghost hidden">Clear steps</button>
             </div>
           </div>
@@ -214,7 +215,7 @@
         <button class="panel-head collapse-head" id="tele-head" aria-expanded="false">
           <span class="panel-title">Live telemetry</span>
           <span class="head-right">
-            <span id="phase-tag" class="tag tag-grey">PARKED</span>
+            <span id="phase-tag" class="head-phase">PARKED</span>
             <span class="chevron" id="tele-chevron">▾</span>
           </span>
         </button>

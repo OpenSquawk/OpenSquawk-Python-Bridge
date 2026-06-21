@@ -42,13 +42,19 @@ SimConnect / X-Plane connector later only means swapping out `simulator.py`.
 - **Push-to-talk hotkey (collapsible)** — bind a key, key combo, or
   joystick/HOTAS button to transmit from anywhere; hold it while flying and the
   radio on this PC records even when the simulator is in front.
-- **Flight actions (collapsible)** — replay a chain of *wait / key / click*
-  steps, fired automatically when a new flight is detected (sim connected +
-  aircraft loaded, once per session) or on a global hotkey / joystick button.
-  Add steps by hand or **Record** your real key presses and clicks (the pauses
-  between them become wait steps). Clicks use absolute screen coordinates, so
-  keep the same window layout you recorded with. Steps and the trigger persist
-  in `~/.opensquawk-bridge/config.json`.
+- **Flight actions (collapsible)** — multiple chains of *wait / key / click*
+  steps, organised as **tabs**. Each tab is one chain bound to a single trigger:
+  an event hook (**app start**, **sim detected**, **aircraft detected**, or a
+  **GPS jump** — a teleport/reload, detected as a ≥ 50 km position shift or a
+  null↔real GPS transition together with an altitude jump) or a global **hotkey /
+  joystick** button. Several chains may share the same hook; they then run in
+  order as one scenario. While a scenario runs, no other event trigger may fire
+  until it finishes plus a 10 s cooldown (recognised triggers are logged); the
+  manual **Run now** button is exempt. Chains default-name themselves after their
+  trigger and can be renamed, enabled/disabled, and deleted. Add steps by hand or
+  **Record** your real key presses and clicks (the pauses between them become wait
+  steps). Clicks use absolute screen coordinates, so keep the same window layout
+  you recorded with. Chains persist in `~/.opensquawk-bridge/config.json`.
 
 The app has two screens: the **login screen** (with the pairing code) when not
 linked, and the **main screen** once linked, with a sign-out button in the top-

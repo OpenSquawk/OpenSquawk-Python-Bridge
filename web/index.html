@@ -150,40 +150,62 @@
 
         <div id="act-body" class="collapse-body hidden">
           <p class="panel-text">
-            Replay a chain of key presses and clicks — automatically when a new
-            flight is detected, or with a hotkey. Clicks use absolute screen
-            positions, so keep the same window layout.
+            Replay chains of key presses and clicks. Each tab is one chain bound
+            to a trigger — app start, sim/aircraft detected, a GPS jump, or a
+            hotkey. Clicks use absolute screen positions, so keep the same layout.
           </p>
 
-          <ol id="act-steps" class="act-steps"></ol>
+          <!-- tab strip: one tab per chain, plus add -->
+          <div class="act-tabs" id="act-tabs"></div>
 
-          <div class="act-add">
-            <button id="act-add-wait" class="btn btn-small">+ Wait</button>
-            <button id="act-add-click" class="btn btn-small">+ Click</button>
+          <!-- empty state -->
+          <div id="act-empty" class="act-empty hidden">
+            <p class="panel-text">No actions yet.</p>
+            <button id="act-add-empty" class="btn btn-small">+ New action</button>
           </div>
 
-          <div class="ptt-actions">
-            <button id="act-record" class="btn btn-small">Record</button>
-            <button id="act-run" class="btn btn-small">Run now</button>
-            <button id="act-clear" class="btn btn-small btn-ghost hidden">Clear all</button>
-          </div>
-
-          <div class="row" style="margin-top:10px;">
-            <div class="row-text">
-              <div class="row-title">Hotkey trigger</div>
-              <div class="row-sub" id="act-trigger">Not set</div>
+          <!-- editor for the active chain -->
+          <div id="act-editor" class="act-editor hidden">
+            <div class="act-meta">
+              <input id="act-name" class="input" type="text" placeholder="Name" />
+              <label class="act-enable">
+                <input type="checkbox" id="act-enabled" /><span>Enabled</span>
+              </label>
+              <button id="act-delete" class="btn btn-small btn-ghost">Delete</button>
             </div>
+
+            <div class="row act-trigger-row">
+              <div class="row-text">
+                <div class="row-title">Trigger</div>
+                <div class="row-sub" id="act-trigger">Not set</div>
+              </div>
+              <div class="act-trigger-ctl">
+                <select id="act-hook-select" class="select select-sm">
+                  <option value="">— Custom / none —</option>
+                  <option value="app_start">On app start</option>
+                  <option value="sim">On sim detected</option>
+                  <option value="aircraft">On aircraft detected</option>
+                  <option value="gps_jump">On GPS jump</option>
+                </select>
+                <button id="act-set-key" class="btn btn-small">Set key</button>
+                <button id="act-set-joy" class="btn btn-small">Set joystick</button>
+                <button id="act-clear-trigger" class="btn btn-small btn-ghost hidden">Clear</button>
+              </div>
+            </div>
+
+            <ol id="act-steps" class="act-steps"></ol>
+
+            <div class="act-add">
+              <button id="act-add-wait" class="btn btn-small">+ Wait</button>
+              <button id="act-add-click" class="btn btn-small">+ Click</button>
+            </div>
+
             <div class="ptt-actions">
-              <button id="act-set-key" class="btn btn-small">Set key</button>
-              <button id="act-set-joy" class="btn btn-small">Set joystick</button>
-              <button id="act-clear-trigger" class="btn btn-small btn-ghost hidden">Clear</button>
+              <button id="act-record" class="btn btn-small">Record</button>
+              <button id="act-run" class="btn btn-small">Run now</button>
+              <button id="act-clear" class="btn btn-small btn-ghost hidden">Clear steps</button>
             </div>
           </div>
-
-          <label class="act-auto">
-            <input type="checkbox" id="act-autorun" />
-            <span>Run automatically on new flight</span>
-          </label>
         </div>
       </article>
 

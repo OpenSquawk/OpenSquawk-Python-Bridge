@@ -44,6 +44,10 @@ STREAM_INTERVAL = 1.0   # seconds, POST /data while sim active
 STREAM_STALE_SECONDS = 3.0
 REQUEST_TIMEOUT = 8
 
+# After an event trigger fires, no other event trigger may run until the chain
+# finishes plus this cooldown. Manual "Run now" is exempt.
+ACTIONS_COOLDOWN_SECONDS = 10.0
+
 # 6-char pairing code (A-Z + 0-9, matches the website). Confusable characters
 # (0/O, 1/I) are excluded so the code stays easy to read and type by hand.
 TOKEN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -106,7 +110,7 @@ class BridgeApi:
             legacy = cfg.get("ptt_key")
             trigger = {"type": "keys", "keys": [legacy]} if isinstance(legacy, str) else None
         self.trigger: dict | None = trigger
-        # while the UI is binding a trigger: {"slot": "ptt"|"actions",
+        # while the UI is binding a trigger: {"target": "ptt"|<chain id>,
         # "kind": "key"|"joy"} or None when idle.
         self._capturing: dict | None = None
         self._capture_keys: list[str] = []    # keys held so far during a combo bind
@@ -117,20 +121,23 @@ class BridgeApi:
         self._kb_listener = None
         self._mouse_listener = None            # pynput mouse listener (recording)
 
-        # flight-action chain (see actions.py). Persisted in config.json.
+        # flight-action chains (see actions.py). Persisted in config.json as a
+        # list; each chain is one tab bound to one trigger (hook / keys / joy).
         try:
-            self.actions_steps = actions.normalize_steps(cfg.get("actions_steps") or [])
+            self.actions_chains = actions.normalize_chains(cfg.get("actions_chains") or [])
         except Exception:
-            self.actions_steps = []
-        self.actions_autorun = bool(cfg.get("actions_autorun"))
-        _atrig = cfg.get("actions_trigger")
-        self.actions_trigger = _atrig if isinstance(_atrig, dict) else None
-        self._actions_running = False
-        self._actions_recording = False
+            self.actions_chains = []
+        self.actions_active_id = self.actions_chains[0]["id"] if self.actions_chains else None
+        self._actions_running = False         # the single shared runner slot
+        self._cooldown_until = 0.0            # event triggers blocked until this time
+        self._recording_chain_id: str | None = None  # chain we're recording into
         self._record_events: list = []
         self._actions_backend = self._init_actions_backend()
-        self._session_armed = False   # True once we've auto-fired for the current session
-        self._actions_combo_down = False  # edge-detect for the actions hotkey (Task 7)
+        # session-scoped hook state — re-armed when a flight session drops
+        self._sim_fired = False
+        self._aircraft_fired = False
+        self._prev_gps: tuple | None = None
+        self._combo_down: dict = {}           # per-combo hotkey edge detection
 
         # the PM/recording app link is per-token and stable, so build it once
         self.pm_url = f"{PM_URL}?token={self.token}"
@@ -165,6 +172,11 @@ class BridgeApi:
         self._start_ptt_listener()
         self._start_joystick_listener()
         self._start_mouse_listener()
+
+        # fire any "app_start"-bound chains once the UI/input is up.
+        _app_start = threading.Timer(1.5, lambda: self._fire_hook("app_start"))
+        _app_start.daemon = True
+        _app_start.start()
 
     # ---- persistence -------------------------------------------------------
 
@@ -276,7 +288,7 @@ class BridgeApi:
             with self._lock:
                 self.flight_active = False
             self._report_status(sim_connected=False, flight_active=False)
-            self._maybe_autorun(connected=False, aircraft=None)
+            self._eval_flight_hooks(connected=False, aircraft=None, gps=None)
             return
         with self._lock:
             self.last_telemetry = sample.raw
@@ -286,7 +298,11 @@ class BridgeApi:
             self.aircraft = sample.aircraft
 
         self._report_status(sim_connected=True, flight_active=sample.flight_active)
-        self._maybe_autorun(connected=sample.connected, aircraft=sample.aircraft)
+        lat = sample.raw.get("latitude_deg")
+        lon = sample.raw.get("longitude_deg")
+        alt = sample.raw.get("altitude_ft_indicated", sample.raw.get("altitude_ft_true"))
+        gps = (lat, lon, alt) if None not in (lat, lon, alt) else None
+        self._eval_flight_hooks(connected=sample.connected, aircraft=sample.aircraft, gps=gps)
 
         # stream telemetry
         try:
@@ -373,14 +389,18 @@ class BridgeApi:
             return f"{trig.get('joy', 'Joystick')} · Button {trig.get('button')}"
         return "Not set"
 
-    def _store_trigger(self, slot: str, trig: dict) -> None:
-        """Persist a freshly captured trigger into the right slot."""
-        if slot == "ptt":
+    def _store_trigger(self, target: str, trig: dict) -> None:
+        """Persist a freshly captured trigger into the PTT slot or a chain."""
+        if target == "ptt":
             self.trigger = trig
             self._update_config(ptt_trigger=trig)
         else:
-            self.actions_trigger = trig
-            self._update_config(actions_trigger=trig)
+            chain = self._find_chain(target)
+            if chain is not None:
+                chain["trigger"] = trig
+                self._maybe_default_name(chain)
+                self._combo_down.clear()
+                self._save_actions_chains()
 
     def _fire(self, down: bool) -> None:
         """Edge-triggered PTT, shared by keyboard and joystick paths."""
@@ -441,7 +461,7 @@ class BridgeApi:
                 pass
 
     def _on_mouse_click(self, x, y, button, pressed) -> None:
-        if not (self._actions_recording and pressed):
+        if not (self._recording_chain_id and pressed):
             return
         if self._point_in_app_window(x, y):
             return
@@ -470,7 +490,7 @@ class BridgeApi:
                 self._capture_keys.append(identity)
             return
 
-        if self._actions_recording and self._capturing is None and identity:
+        if self._recording_chain_id and self._capturing is None and identity:
             with self._lock:
                 self._record_events.append((time.time(), {"type": "key", "keys": [identity]}))
 
@@ -482,8 +502,7 @@ class BridgeApi:
         cap = self._capturing
         if cap and cap["kind"] == "key":
             if self._capture_keys:
-                slot = cap["slot"]
-                self._store_trigger(slot, {"type": "keys", "keys": sorted(self._capture_keys)})
+                self._store_trigger(cap["target"], {"type": "keys", "keys": sorted(self._capture_keys)})
                 self._capturing = None
                 self._capture_keys = []
                 self._pressed.clear()
@@ -503,13 +522,30 @@ class BridgeApi:
             elif self._ptt_active and not (keys <= self._pressed):
                 self._fire(False)
 
-        at = self.actions_trigger
-        if at and at.get("type") == "keys":
-            akeys = set(at.get("keys") or [])
-            now_down = bool(akeys) and akeys <= self._pressed
-            if now_down and not self._actions_combo_down:
-                self._run_actions_async("hotkey")
-            self._actions_combo_down = now_down
+        self._eval_hotkey_chains()
+
+    def _eval_hotkey_chains(self) -> None:
+        """Edge-detect each distinct enabled key-combo bound to a chain and fire
+        it once on the press edge. Combos shared by several chains fire together
+        (one scenario) via the matcher in _try_event_fire."""
+        active: dict = {}
+        for chain in self.actions_chains:
+            trig = chain.get("trigger")
+            if not (chain.get("enabled") and trig and trig.get("type") == "keys"):
+                continue
+            keys = frozenset(trig.get("keys") or [])
+            if keys:
+                active[keys] = keys <= self._pressed
+        for keys, down in active.items():
+            if down and not self._combo_down.get(keys):
+                self._try_event_fire(
+                    "hotkey",
+                    lambda t, k=set(keys): bool(t) and t.get("type") == "keys" and set(t.get("keys") or []) == k,
+                )
+            self._combo_down[keys] = down
+        for keys in list(self._combo_down):
+            if keys not in active:
+                self._combo_down.pop(keys, None)
 
     # -- joystick / HOTAS (pygame) --
 
@@ -573,7 +609,7 @@ class BridgeApi:
         if cap and cap["kind"] == "joy":
             if down and button is not None:
                 self._store_trigger(
-                    cap["slot"],
+                    cap["target"],
                     {"type": "joy", "joy": name, "button": button},
                 )
                 self._capturing = None
@@ -583,9 +619,11 @@ class BridgeApi:
         if trig and trig.get("type") == "joy" and trig.get("button") == button:
             self._fire(down)
 
-        at = self.actions_trigger
-        if at and at.get("type") == "joy" and at.get("button") == button and down:
-            self._run_actions_async("hotkey")
+        if down and button is not None:
+            self._try_event_fire(
+                "joystick",
+                lambda t, b=button: bool(t) and t.get("type") == "joy" and t.get("button") == b,
+            )
 
     # -- send --
 
@@ -627,12 +665,12 @@ class BridgeApi:
     def ptt_capture_key(self) -> dict:
         """Arm capture: the next key (or held combo) becomes the PTT trigger."""
         self._capture_keys = []
-        self._capturing = {"slot": "ptt", "kind": "key"}
+        self._capturing = {"target": "ptt", "kind": "key"}
         return {"ok": True}
 
     def ptt_capture_joy(self) -> dict:
         """Arm capture: the next joystick button press becomes the PTT trigger."""
-        self._capturing = {"slot": "ptt", "kind": "joy"}
+        self._capturing = {"target": "ptt", "kind": "joy"}
         return {"ok": True}
 
     def ptt_cancel_capture(self) -> dict:
@@ -663,14 +701,17 @@ class BridgeApi:
         return {"ok": True}
 
     def _reset_actions_runtime(self) -> None:
-        """Stop any in-flight run/recording and disarm autorun. Used when the
-        session changes (logout / source switch) so a chain can't keep firing
-        input or recording into the next session."""
+        """Stop any in-flight run/recording and re-arm the session hooks. Used
+        when the session changes (logout / source switch) so a chain can't keep
+        firing input or recording into the next session."""
         self._actions_running = False      # signals the runner thread to stop
-        self._actions_recording = False
+        self._recording_chain_id = None
         with self._lock:
             self._record_events = []
-        self._session_armed = False
+        self._sim_fired = False
+        self._aircraft_fired = False
+        self._prev_gps = None
+        self._cooldown_until = 0.0
 
     def logout(self) -> dict:
         """Local logout: stop streaming, forget connection, issue a new code.
@@ -775,98 +816,93 @@ class BridgeApi:
         except Exception:
             pass
 
-    def _save_actions_steps(self) -> None:
-        self._update_config(actions_steps=self.actions_steps)
+    # default tab names per hook (also used to detect auto-generated names)
+    HOOK_LABELS = {
+        "app_start": "On app start",
+        "sim": "On sim detected",
+        "aircraft": "On aircraft detected",
+        "gps_jump": "On GPS jump",
+    }
 
-    def actions_add_step(self, step: dict) -> dict:
-        try:
-            norm = actions.normalize_step(step)
-        except (ValueError, KeyError, TypeError) as exc:
-            return {"ok": False, "error": str(exc)}
+    # -- chain helpers --
+
+    def _find_chain(self, chain_id):
+        for c in self.actions_chains:
+            if c["id"] == chain_id:
+                return c
+        return None
+
+    def _new_chain_id(self) -> str:
+        existing = {c["id"] for c in self.actions_chains}
+        i = 1
+        while f"c{i}" in existing:
+            i += 1
+        return f"c{i}"
+
+    def _save_actions_chains(self) -> None:
+        self._update_config(actions_chains=self.actions_chains)
+
+    def _chain_trigger_label(self, trig) -> str:
+        if trig and trig.get("type") == "hook":
+            return self.HOOK_LABELS.get(trig.get("hook"), "Not set")
+        return self._trigger_label(trig)
+
+    def _trigger_default_name(self, trig) -> str:
+        if not trig:
+            return "New action"
+        if trig.get("type") == "hook":
+            return self.HOOK_LABELS.get(trig.get("hook"), "New action")
+        if trig.get("type") == "keys":
+            return "Hotkey: " + self._trigger_label(trig)
+        if trig.get("type") == "joy":
+            return self._trigger_label(trig)
+        return "New action"
+
+    def _maybe_default_name(self, chain: dict) -> None:
+        """Re-derive a chain's name from its trigger, but only while the name
+        still looks auto-generated (so we never clobber a user-typed name)."""
+        name = chain.get("name") or ""
+        auto = name in ({"", "New action"} | set(self.HOOK_LABELS.values()))
+        auto = auto or name.startswith("Hotkey: ") or " · Button " in name
+        if auto:
+            chain["name"] = self._trigger_default_name(chain.get("trigger"))
+
+    # -- the global event gate --
+
+    def _fire_hook(self, hook: str) -> bool:
+        return self._try_event_fire(
+            hook,
+            lambda t: bool(t) and t.get("type") == "hook" and t.get("hook") == hook,
+        )
+
+    def _try_event_fire(self, reason: str, match) -> bool:
+        """Run all enabled chains whose trigger matches, as one scenario, unless
+        another scenario is running or the cooldown is still active. Returns True
+        only when a run was actually started (so a suppressed session hook can be
+        retried on the next tick instead of being marked as fired)."""
+        chains = [
+            c for c in self.actions_chains
+            if c.get("enabled") and c.get("steps") and match(c.get("trigger"))
+        ]
+        if not chains:
+            return False
         with self._lock:
-            self.actions_steps.append(norm)
-        self._save_actions_steps()
-        return {"ok": True, "steps": self.actions_steps}
+            now = time.time()
+            if self._actions_running or now < self._cooldown_until:
+                blocked = True
+            else:
+                blocked = False
+                self._actions_running = True
+        if blocked:
+            print(f"[trigger] {reason} erkannt — unterdrückt (cooldown läuft)")
+            return False
+        print(f"[trigger] {reason} erkannt → {len(chains)} Kette(n)")
+        threading.Thread(
+            target=self._run_chains, args=(reason, chains), daemon=True
+        ).start()
+        return True
 
-    def actions_remove_step(self, index: int) -> dict:
-        with self._lock:
-            if 0 <= index < len(self.actions_steps):
-                self.actions_steps.pop(index)
-        self._save_actions_steps()
-        return {"ok": True, "steps": self.actions_steps}
-
-    def actions_clear(self) -> dict:
-        with self._lock:
-            self.actions_steps = []
-        self._save_actions_steps()
-        return {"ok": True}
-
-    def actions_set_autorun(self, on: bool) -> dict:
-        self.actions_autorun = bool(on)
-        self._update_config(actions_autorun=self.actions_autorun)
-        return {"ok": True}
-
-    def actions_capture_trigger(self, kind: str) -> dict:
-        """Arm capture of the actions hotkey ('key' combo or 'joy' button)."""
-        self._capture_keys = []
-        self._capturing = {"slot": "actions", "kind": kind}
-        return {"ok": True}
-
-    def actions_clear_trigger(self) -> dict:
-        """Unbind the actions hotkey."""
-        self.actions_trigger = None
-        self._actions_combo_down = False
-        self._update_config(actions_trigger=None)
-        return {"ok": True}
-
-    def actions_record_start(self) -> dict:
-        """Begin capturing global key/click input into the recording buffer."""
-        self._record_events = []
-        self._actions_recording = True
-        return {"ok": True}
-
-    def actions_record_stop(self) -> dict:
-        """Stop recording and append the captured steps to the chain."""
-        self._actions_recording = False
-        with self._lock:
-            events = self._record_events
-            self._record_events = []
-        new = actions.record_to_steps(events)
-        if new:
-            with self._lock:
-                self.actions_steps.extend(new)
-            self._save_actions_steps()
-        return {"ok": True, "steps": self.actions_steps}
-
-    def _maybe_autorun(self, *, connected: bool, aircraft) -> None:
-        """Fire the chain once when a new flight session is detected
-        (sim connected + aircraft loaded). Re-arms when the session drops."""
-        session_live = bool(connected and aircraft)
-        if not session_live:
-            self._session_armed = False
-            return
-        if self._session_armed:
-            return
-        self._session_armed = True
-        if self.actions_autorun and self.actions_steps and not self._actions_running:
-            self._run_actions_async("auto")
-
-    def _run_actions_async(self, reason: str) -> None:
-        threading.Thread(target=self._run_actions, args=(reason,), daemon=True).start()
-
-    def _begin_actions(self) -> bool:
-        """Atomically claim the single action-runner slot. Returns False if a
-        chain is already running."""
-        with self._lock:
-            if self._actions_running:
-                return False
-            self._actions_running = True
-            return True
-
-    def _run_actions(self, reason: str) -> None:
-        if not self._begin_actions():
-            return
-        print(f"[actions] running chain ({reason}, {len(self.actions_steps)} steps)")
+    def _run_chains(self, reason: str, chains, *, arm_cooldown: bool = True) -> None:
         try:
             if self._actions_backend is None:
                 self._log_actions_error(
@@ -874,29 +910,207 @@ class BridgeApi:
                     "failed to initialise (check bridge-error.log)"
                 )
                 return
-            steps = list(self.actions_steps)
-            actions.run_steps(
-                steps, self._actions_backend, should_stop=lambda: not self._actions_running
-            )
+            for chain in chains:
+                if not self._actions_running:
+                    break
+                steps = list(chain.get("steps") or [])
+                print(f"[actions] running '{chain.get('name') or chain['id']}' "
+                      f"({reason}, {len(steps)} steps)")
+                actions.run_steps(
+                    steps, self._actions_backend,
+                    should_stop=lambda: not self._actions_running,
+                )
         except Exception as exc:  # pragma: no cover - real-input path
             self._log_actions_error(
                 f"[actions] run failed ({exc.__class__.__name__}: {exc})"
             )
         finally:
             with self._lock:
+                if arm_cooldown:
+                    self._cooldown_until = time.time() + ACTIONS_COOLDOWN_SECONDS
                 self._actions_running = False
 
-    def actions_run_now(self) -> dict:
-        if self._actions_running:
-            return {"ok": False, "error": "already running"}
-        if not self.actions_steps:
+    def _eval_flight_hooks(self, *, connected: bool, aircraft, gps) -> None:
+        """Drive the sim / aircraft / gps_jump hooks off the telemetry stream.
+        Session hooks fire once and re-arm when the session drops. `gps` is a
+        (lat, lon, alt_ft) tuple or None."""
+        if not connected:
+            self._sim_fired = False
+            self._aircraft_fired = False
+            self._prev_gps = None
+            return
+        if not self._sim_fired:
+            if self._fire_hook("sim"):
+                self._sim_fired = True
+        if aircraft and not self._aircraft_fired:
+            if self._fire_hook("aircraft"):
+                self._aircraft_fired = True
+        if gps is not None:
+            if actions.is_gps_jump(self._prev_gps, gps):
+                self._fire_hook("gps_jump")
+            self._prev_gps = gps
+
+    # -- exposed chain API (called from JS) --
+
+    def actions_add_chain(self) -> dict:
+        cid = self._new_chain_id()
+        chain = {"id": cid, "name": "New action", "enabled": True, "trigger": None, "steps": []}
+        with self._lock:
+            self.actions_chains.append(chain)
+            self.actions_active_id = cid
+        self._save_actions_chains()
+        return {"ok": True, "id": cid}
+
+    def actions_remove_chain(self, chain_id: str) -> dict:
+        with self._lock:
+            self.actions_chains = [c for c in self.actions_chains if c["id"] != chain_id]
+            if self.actions_active_id == chain_id:
+                self.actions_active_id = self.actions_chains[0]["id"] if self.actions_chains else None
+        self._combo_down.clear()
+        self._save_actions_chains()
+        return {"ok": True}
+
+    def actions_set_active(self, chain_id: str) -> dict:
+        if self._find_chain(chain_id) is not None:
+            self.actions_active_id = chain_id
+        return {"ok": True}
+
+    def actions_rename_chain(self, chain_id: str, name: str) -> dict:
+        chain = self._find_chain(chain_id)
+        if chain is None:
+            return {"ok": False, "error": "no such chain"}
+        chain["name"] = str(name or "").strip() or self._trigger_default_name(chain.get("trigger"))
+        self._save_actions_chains()
+        return {"ok": True}
+
+    def actions_set_enabled(self, chain_id: str, on: bool) -> dict:
+        chain = self._find_chain(chain_id)
+        if chain is None:
+            return {"ok": False}
+        chain["enabled"] = bool(on)
+        self._save_actions_chains()
+        return {"ok": True}
+
+    def actions_set_trigger_hook(self, chain_id: str, hook: str) -> dict:
+        chain = self._find_chain(chain_id)
+        if chain is None or hook not in actions.HOOKS:
+            return {"ok": False, "error": "bad hook"}
+        chain["trigger"] = {"type": "hook", "hook": hook}
+        self._maybe_default_name(chain)
+        self._combo_down.clear()
+        self._save_actions_chains()
+        return {"ok": True}
+
+    def actions_capture_trigger(self, chain_id: str, kind: str) -> dict:
+        """Arm capture of a chain's hotkey ('key' combo or 'joy' button)."""
+        self._capture_keys = []
+        self._capturing = {"target": chain_id, "kind": kind}
+        return {"ok": True}
+
+    def actions_cancel_capture(self) -> dict:
+        self._capturing = None
+        self._capture_keys = []
+        return {"ok": True}
+
+    def actions_clear_trigger(self, chain_id: str) -> dict:
+        """Unbind a chain's trigger."""
+        chain = self._find_chain(chain_id)
+        if chain is not None:
+            chain["trigger"] = None
+            self._save_actions_chains()
+        self._combo_down.clear()
+        return {"ok": True}
+
+    def actions_add_step(self, chain_id: str, step: dict) -> dict:
+        chain = self._find_chain(chain_id)
+        if chain is None:
+            return {"ok": False, "error": "no such chain"}
+        try:
+            norm = actions.normalize_step(step)
+        except (ValueError, KeyError, TypeError) as exc:
+            return {"ok": False, "error": str(exc)}
+        with self._lock:
+            chain["steps"].append(norm)
+        self._save_actions_chains()
+        return {"ok": True}
+
+    def actions_remove_step(self, chain_id: str, index: int) -> dict:
+        chain = self._find_chain(chain_id)
+        if chain is not None:
+            with self._lock:
+                if 0 <= index < len(chain["steps"]):
+                    chain["steps"].pop(index)
+            self._save_actions_chains()
+        return {"ok": True}
+
+    def actions_clear_steps(self, chain_id: str) -> dict:
+        chain = self._find_chain(chain_id)
+        if chain is not None:
+            with self._lock:
+                chain["steps"] = []
+            self._save_actions_chains()
+        return {"ok": True}
+
+    def actions_record_start(self, chain_id: str) -> dict:
+        """Begin capturing global key/click input into the given chain."""
+        if self._find_chain(chain_id) is None:
+            return {"ok": False}
+        self._record_events = []
+        self._recording_chain_id = chain_id
+        return {"ok": True}
+
+    def actions_record_stop(self) -> dict:
+        """Stop recording and append the captured steps to the chain."""
+        chain_id = self._recording_chain_id
+        self._recording_chain_id = None
+        with self._lock:
+            events = self._record_events
+            self._record_events = []
+        chain = self._find_chain(chain_id) if chain_id else None
+        if chain is not None:
+            new = actions.record_to_steps(events)
+            if new:
+                with self._lock:
+                    chain["steps"].extend(new)
+                self._save_actions_chains()
+        return {"ok": True}
+
+    def actions_run_now(self, chain_id: str) -> dict:
+        chain = self._find_chain(chain_id)
+        if chain is None or not chain.get("steps"):
             return {"ok": False, "error": "no steps"}
-        self._run_actions_async("manual")
+        with self._lock:
+            if self._actions_running:
+                return {"ok": False, "error": "already running"}
+            self._actions_running = True
+        # manual runs bypass the cooldown — a deliberate user action.
+        threading.Thread(
+            target=self._run_chains, args=("manual", [chain]),
+            kwargs={"arm_cooldown": False}, daemon=True,
+        ).start()
         return {"ok": True}
 
     def actions_stop(self) -> dict:
         self._actions_running = False
         return {"ok": True}
+
+    def _chains_for_ui(self) -> list[dict]:
+        return [
+            {
+                "id": c["id"],
+                "name": c.get("name") or self._trigger_default_name(c.get("trigger")),
+                "enabled": c.get("enabled", True),
+                "trigger": c.get("trigger"),
+                "trigger_label": self._chain_trigger_label(c.get("trigger")),
+                "trigger_hook": (
+                    c["trigger"].get("hook")
+                    if c.get("trigger") and c["trigger"].get("type") == "hook"
+                    else None
+                ),
+                "steps": c.get("steps") or [],
+            }
+            for c in self.actions_chains
+        ]
 
     def get_state(self) -> dict:
         """Single snapshot the frontend polls a few times per second."""
@@ -919,19 +1133,19 @@ class BridgeApi:
                 "base_url": BASE_URL,
                 "ptt_key_label": self._trigger_label(self.trigger),
                 "ptt_set": self.trigger is not None,
-                "ptt_capturing": (self._capturing["kind"] if (self._capturing and self._capturing["slot"] == "ptt") else None),
-                "actions_capturing": (self._capturing["kind"] if (self._capturing and self._capturing["slot"] == "actions") else None),
+                "ptt_capturing": (self._capturing["kind"] if (self._capturing and self._capturing["target"] == "ptt") else None),
                 "ptt_active": self._ptt_active,
                 "ptt_supported": self.ptt_supported,
                 "ptt_joy_supported": self.ptt_joy_supported,
                 "ptt_is_mac": sys.platform == "darwin",
-                "actions_steps": self.actions_steps,
-                "actions_autorun": self.actions_autorun,
+                "actions_chains": self._chains_for_ui(),
+                "actions_active_id": self.actions_active_id,
                 "actions_running": self._actions_running,
-                "actions_recording": self._actions_recording,
-                "actions_trigger_label": self._trigger_label(self.actions_trigger),
-                "actions_trigger_set": self.actions_trigger is not None,
+                "actions_recording_id": self._recording_chain_id,
+                "actions_capturing": (self._capturing["kind"] if (self._capturing and self._capturing["target"] != "ptt") else None),
+                "actions_capturing_id": (self._capturing["target"] if (self._capturing and self._capturing["target"] != "ptt") else None),
                 "actions_backend_ok": self._actions_backend is not None,
+                "actions_hook_labels": self.HOOK_LABELS,
             }
 
 

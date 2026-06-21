@@ -527,7 +527,50 @@ html, body {
 .act-del { background: none; border: 0; color: var(--muted, #8aa); cursor: pointer; }
 .act-del:hover { color: #f66; }
 .act-add { display: flex; gap: 6px; margin-bottom: 8px; }
-.act-auto { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; }
+
+/* chain tabs */
+.act-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
+.act-tab {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--panel-line);
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 6px 11px;
+  font-size: 12.5px;
+  cursor: pointer;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.act-tab:hover { color: var(--text); }
+.act-tab.active {
+  color: #06212b;
+  background: var(--cyan-bright);
+  border-color: transparent;
+  font-weight: 600;
+}
+.act-tab.off:not(.active) { opacity: 0.55; text-decoration: line-through; }
+.act-tab-add { color: var(--cyan-bright); font-weight: 700; max-width: none; }
+
+.act-empty { text-align: center; padding: 10px 0; }
+.act-editor { display: block; }
+.act-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.act-meta .input { flex: 1; }
+.act-enable { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.act-trigger-row { margin: 8px 0 14px; align-items: flex-start; }
+.act-trigger-ctl { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; align-items: center; }
+.select-sm { width: auto; padding: 7px 10px; font-size: 12.5px; border-radius: 8px; }
+
+.input {
+  background: rgba(8, 19, 32, 0.8);
+  color: var(--text);
+  border: 1px solid var(--panel-line);
+  border-radius: 9px;
+  padding: 8px 11px;
+  font-size: 13px;
+}
+.input:focus { outline: none; border-color: var(--cyan); }
 
 /* thin scrollbar for app feel */
 .content::-webkit-scrollbar { width: 9px; }

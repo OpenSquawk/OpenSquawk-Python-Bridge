@@ -137,24 +137,39 @@ class PhaseEstimator:
 
 from simulator import FlightState  # noqa: E402 (after pure helpers; avoids cycle at top)
 
-_MSFS_PROCESSES = ("FlightSimulator2024.exe", "FlightSimulator.exe")
+# Process image names per MSFS generation. Both connect over the same
+# SimConnect pipe, so the only thing that differs is the executable we look for.
+_MSFS_PROCESSES = {
+    "2024": ("FlightSimulator2024.exe",),
+    "2020": ("FlightSimulator.exe",),
+}
 
 
-def msfs_available() -> bool:
+def msfs_available(version: str | None = None) -> bool:
     """Cheap detection: is an MSFS process running? Windows only.
 
-    Used to enable/disable the MSFS entry in the source dropdown. Actual
-    connection happens on selection (MsfsSource.open).
+    `version` is "2024", "2020", or None for "any MSFS". Used to enable/disable
+    the MSFS entries in the source dropdown. Actual connection happens on
+    selection (MsfsSource.open). Note: MSFS 2020's "FlightSimulator.exe" is a
+    prefix of 2024's "FlightSimulator2024.exe", so we match on the full name
+    plus the trailing space/EOL tasklist prints after the image name.
     """
     if not sys.platform.startswith("win"):
         return False
+    if version is None:
+        procs = tuple(p for ps in _MSFS_PROCESSES.values() for p in ps)
+    else:
+        procs = _MSFS_PROCESSES.get(version, ())
     try:
         import subprocess
         out = subprocess.run(
             ["tasklist", "/FI", "IMAGENAME eq FlightSimulator*"],
             capture_output=True, text=True, timeout=4,
         ).stdout
-        return any(p in out for p in _MSFS_PROCESSES)
+        # Match the image name followed by whitespace so "FlightSimulator.exe"
+        # does not also match "FlightSimulator2024.exe".
+        import re
+        return any(re.search(re.escape(p) + r"\s", out) for p in procs)
     except Exception:
         return False
 
@@ -187,11 +202,16 @@ _SIMVAR_KEYS = {
 
 
 class MsfsSource:
-    """Live MSFS telemetry source (standard SimVars via Python-SimConnect)."""
+    """Live MSFS telemetry source (standard SimVars via Python-SimConnect).
 
-    id = "msfs2024"
+    Works for both MSFS 2020 and 2024 — they share the SimConnect interface, so
+    `version` only labels the instance; the live connection attaches to whichever
+    sim is running on the pipe.
+    """
 
-    def __init__(self) -> None:
+    def __init__(self, version: str = "2024") -> None:
+        self.version = version
+        self.id = f"msfs{version}"
         self._sm = None          # SimConnect handle
         self._aq = None          # AircraftRequests
         self._connected = False

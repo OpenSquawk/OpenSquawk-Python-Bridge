@@ -59,7 +59,7 @@ SOURCES = [
     {"id": "none", "label": "(None)"},
     {"id": "dummy", "label": "Dummy flight"},
     {"id": "msfs2024", "label": "MSFS 2024"},
-    {"id": "msfs2020", "label": "MSFS 2020", "coming_soon": True},
+    {"id": "msfs2020", "label": "MSFS 2020"},
     {"id": "xplane", "label": "X-Plane", "coming_soon": True},
     {"id": "flightgear", "label": "FlightGear", "coming_soon": True},
 ]
@@ -740,7 +740,11 @@ class BridgeApi:
     def _sources_for_ui(self) -> list[dict]:
         """Source list with runtime availability for the dropdown."""
         from msfs_source import msfs_available
-        avail = {"none": True, "dummy": True, "msfs2024": msfs_available()}
+        avail = {
+            "none": True, "dummy": True,
+            "msfs2024": msfs_available("2024"),
+            "msfs2020": msfs_available("2020"),
+        }
         out = []
         for s in SOURCES:
             available = avail.get(s["id"], not s.get("coming_soon", False))
@@ -751,9 +755,9 @@ class BridgeApi:
         if source_id == "dummy":
             from simulator import DummyFlight
             return DummyFlight()
-        if source_id == "msfs2024":
+        if source_id in ("msfs2024", "msfs2020"):
             from msfs_source import MsfsSource
-            return MsfsSource()
+            return MsfsSource(version=source_id.removeprefix("msfs"))
         return None
 
     def set_source(self, source_id: str) -> dict:

@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import json
 import os
+import plistlib
 import secrets
+import shlex
 import subprocess
 import sys
 import threading
@@ -38,6 +40,7 @@ PM_URL = f"{BASE_URL}/pm"  # the push-to-talk / recording app
 
 CONFIG_DIR = Path.home() / ".opensquawk-bridge"
 CONFIG_FILE = CONFIG_DIR / "config.json"
+AUTOSTART_APP_ID = "de.opensquawk.bridge"
 
 POLL_INTERVAL = 2.0     # seconds, GET /me while waiting / linked
 STREAM_INTERVAL = 1.0   # seconds, POST /data while sim active
@@ -65,6 +68,13 @@ SOURCES = [
 ]
 
 WEB_DIR = _resource_dir() / "web"
+
+
+def _launch_command() -> list[str]:
+    """Command used by OS autostart entries for source and packaged runs."""
+    if getattr(sys, "frozen", False):
+        return [sys.executable]
+    return [sys.executable, str(Path(__file__).resolve())]
 
 
 def _now() -> float:
@@ -229,6 +239,88 @@ class BridgeApi:
             CONFIG_FILE.write_text(json.dumps(data, indent=2))
         except Exception as exc:  # pragma: no cover - best effort
             print(f"[config] could not save: {exc}")
+
+    # ---- OS autostart ------------------------------------------------------
+
+    def _autostart_paths(self) -> dict[str, Path]:
+        return {
+            "mac": Path.home() / "Library" / "LaunchAgents" / f"{AUTOSTART_APP_ID}.plist",
+            "linux": Path.home() / ".config" / "autostart" / "opensquawk-bridge.desktop",
+        }
+
+    def _autostart_enabled(self) -> bool:
+        if sys.platform.startswith("win"):
+            try:
+                import winreg
+
+                with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Run",
+                ) as key:
+                    winreg.QueryValueEx(key, APP_NAME)
+                    return True
+            except Exception:
+                return False
+        paths = self._autostart_paths()
+        if sys.platform == "darwin":
+            return paths["mac"].exists()
+        return paths["linux"].exists()
+
+    def _set_autostart(self, enabled: bool) -> None:
+        cmd = _launch_command()
+        if sys.platform.startswith("win"):
+            import winreg
+
+            key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+            with winreg.CreateKeyEx(
+                winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE
+            ) as key:
+                if enabled:
+                    value = subprocess.list2cmdline(cmd)
+                    winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, value)
+                else:
+                    try:
+                        winreg.DeleteValue(key, APP_NAME)
+                    except FileNotFoundError:
+                        pass
+            return
+
+        paths = self._autostart_paths()
+        if sys.platform == "darwin":
+            plist = paths["mac"]
+            if enabled:
+                plist.parent.mkdir(parents=True, exist_ok=True)
+                plist.write_bytes(plistlib.dumps({
+                    "Label": AUTOSTART_APP_ID,
+                    "ProgramArguments": cmd,
+                    "RunAtLoad": True,
+                }))
+            else:
+                plist.unlink(missing_ok=True)
+            return
+
+        desktop = paths["linux"]
+        if enabled:
+            desktop.parent.mkdir(parents=True, exist_ok=True)
+            desktop.write_text(
+                "[Desktop Entry]\n"
+                "Type=Application\n"
+                f"Name={APP_NAME}\n"
+                f"Exec={shlex.join(cmd)}\n"
+                "X-GNOME-Autostart-enabled=true\n",
+                encoding="utf-8",
+            )
+        else:
+            desktop.unlink(missing_ok=True)
+
+    def set_autostart(self, enabled: bool) -> dict:
+        try:
+            self._set_autostart(bool(enabled))
+            return {"ok": True, "enabled": self._autostart_enabled()}
+        except Exception as exc:
+            with self._lock:
+                self.error = f"Autostart konnte nicht geändert werden: {exc.__class__.__name__}"
+            return {"ok": False, "error": self.error, "enabled": self._autostart_enabled()}
 
     # ---- http helpers ------------------------------------------------------
 
@@ -1150,6 +1242,7 @@ class BridgeApi:
                 "actions_capturing_id": (self._capturing["target"] if (self._capturing and self._capturing["target"] != "ptt") else None),
                 "actions_backend_ok": self._actions_backend is not None,
                 "actions_hook_labels": self.HOOK_LABELS,
+                "autostart_enabled": self._autostart_enabled(),
             }
 
 

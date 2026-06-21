@@ -412,6 +412,10 @@ function render(state) {
 
     renderPtt(state);
     renderActions(state);
+    const autostart = $("autostart-toggle");
+    if (autostart && document.activeElement !== autostart) {
+      autostart.checked = !!state.autostart_enabled;
+    }
   } else {
     connPill.textContent = "Not linked";
     connPill.className = "pill pill-muted";
@@ -465,6 +469,7 @@ function wireEvents() {
   });
   $("signup-link").addEventListener("click", (e) => { e.preventDefault(); api().open_signup(); });
   $("open-pm-btn").addEventListener("click", () => api().open_pm());
+  $("autostart-toggle").addEventListener("change", (e) => api().set_autostart(e.target.checked));
   $("ptt-set-btn").addEventListener("click", () => {
     if (pttCapturing === "key") api().ptt_cancel_capture();
     else api().ptt_capture_key();

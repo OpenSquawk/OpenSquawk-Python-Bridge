@@ -319,7 +319,7 @@ class BridgeApi:
             return {"ok": True, "enabled": self._autostart_enabled()}
         except Exception as exc:
             with self._lock:
-                self.error = f"Autostart konnte nicht geändert werden: {exc.__class__.__name__}"
+                self.error = f"Autostart could not be changed: {exc.__class__.__name__}"
             return {"ok": False, "error": self.error, "enabled": self._autostart_enabled()}
 
     # ---- http helpers ------------------------------------------------------
@@ -990,9 +990,9 @@ class BridgeApi:
                 blocked = False
                 self._actions_running = True
         if blocked:
-            print(f"[trigger] {reason} erkannt — unterdrückt (cooldown läuft)")
+            print(f"[trigger] {reason} detected - suppressed (cooldown active)")
             return False
-        print(f"[trigger] {reason} erkannt → {len(chains)} Kette(n)")
+        print(f"[trigger] {reason} detected -> {len(chains)} chain(s)")
         threading.Thread(
             target=self._run_chains, args=(reason, chains), daemon=True
         ).start()
@@ -1400,8 +1400,8 @@ def _preflight() -> tuple[list[str], bool]:
     index = WEB_DIR / "index.html"
     if not index.exists():
         problems.append(
-            f"• Die UI-Dateien fehlen ({index}).\n"
-            "  Der Build ist unvollständig — bitte mit 'python build.py' neu bauen."
+            f"• The UI files are missing ({index}).\n"
+            "  The build is incomplete - please rebuild with 'python build.py'."
         )
 
     # Windows renders the UI through the Edge WebView2 runtime; without it the
@@ -1409,8 +1409,8 @@ def _preflight() -> tuple[list[str], bool]:
     webview2_missing = not _webview2_installed()
     if webview2_missing:
         problems.append(
-            "• Microsoft Edge WebView2-Runtime fehlt.\n"
-            "  Auf Windows 11 vorinstalliert; auf Windows 10 einmalig installieren\n"
+            "• Microsoft Edge WebView2 Runtime is missing.\n"
+            "  It is preinstalled on Windows 11; install it once on Windows 10\n"
             f"  (\"Evergreen Bootstrapper\"): {WEBVIEW2_DOWNLOAD_URL}"
         )
 
@@ -1426,9 +1426,9 @@ def _run() -> None:
     problems, webview2_missing = _preflight()
     if problems:
         _windows_message_box(
-            f"{APP_NAME} kann noch nicht starten — Folgendes fehlt:\n\n"
+            f"{APP_NAME} cannot start yet - the following is missing:\n\n"
             + "\n\n".join(problems)
-            + "\n\nBitte beheben und die App erneut starten."
+            + "\n\nPlease fix this and start the app again."
         )
         if webview2_missing:
             # one-click: take the user straight to the download
@@ -1479,10 +1479,10 @@ def main() -> None:
         log = _log_startup_error()
         details = f"\n\nDetails: {log}" if log else ""
         _windows_message_box(
-            f"{APP_NAME} konnte nicht starten.\n\n"
+            f"{APP_NAME} could not start.\n\n"
             f"{exc.__class__.__name__}: {exc}\n\n"
-            "Auf Windows ist die häufigste Ursache die fehlende Microsoft Edge "
-            f"WebView2-Runtime:\n{WEBVIEW2_DOWNLOAD_URL}"
+            "On Windows, the most common cause is the missing Microsoft Edge "
+            f"WebView2 Runtime:\n{WEBVIEW2_DOWNLOAD_URL}"
             f"{details}",
         )
         raise

@@ -1,52 +1,75 @@
 # OpenSquawk Bridge
 
-OpenSquawk Bridge verbindet deinen Flugsimulator mit
-[opensquawk.de](https://opensquawk.de). Die App läuft als kleines Desktop-Fenster,
-streamt Telemetrie an OpenSquawk und öffnet die Push-to-talk-Funkseite für ATC.
+OpenSquawk Bridge connects your flight simulator to
+[opensquawk.de](https://opensquawk.de). The app runs as a small desktop window,
+streams simulator telemetry to OpenSquawk, and opens the push-to-talk radio page
+for ATC.
 
-Die App kann direkt aus dem Quellcode gestartet werden. Für normale Nutzer baust
-du daraus eine anklickbare Windows-`.exe` oder macOS-`.app`.
+You can run the app directly from source. For regular users, build a clickable
+Windows `.exe` or macOS `.app`.
 
-## Was die App kann
+## Features
 
-- OpenSquawk-Konto per Pairing-Code mit diesem Gerät verbinden.
-- Push-to-talk-Funkseite auf dem PC öffnen oder per QR-Code auf Handy/iPad nutzen.
-- Globalen Push-to-talk-Trigger setzen: Tastatur, Tastenkombination oder
-  Joystick/HOTAS-Button.
-- Simulatorquelle wählen:
-  - `Dummy flight` zum Testen ohne Simulator.
-  - `MSFS 2024`, wenn der Simulator läuft.
-  - `MSFS 2020`, wenn der Simulator läuft.
-  - `X-Plane` und `FlightGear` sind vorbereitet, aber noch nicht aktiv.
-- Live-Status und Telemetrie anzeigen, inklusive Flugphase, Funkfrequenzen,
-  Squawk, Position, Geschwindigkeit und Höhe.
-- Flight actions anlegen: Ketten aus Wartezeiten, Tastendrücken und Klicks, die
-  per App-Start, Sim-Erkennung, Aircraft-Erkennung, GPS-Sprung, Hotkey oder
-  Joystick-Button ausgelöst werden.
-- Optional mit dem Betriebssystem starten, damit die Bridge nach dem Einloggen
-  automatisch bereit ist.
+- Link this device to an OpenSquawk account with a pairing code.
+- Open the push-to-talk radio page on this PC, or scan a QR code to use it on a
+  phone or tablet.
+- Bind a global push-to-talk trigger: keyboard key, key combo, or joystick/HOTAS
+  button.
+- Choose a simulator source:
+  - `Dummy flight` for testing without a simulator.
+  - `MSFS 2024`, when the simulator is running.
+  - `MSFS 2020`, when the simulator is running.
+  - `X-Plane` and `FlightGear` are prepared, but not active yet.
+- Show live status and telemetry, including flight phase, radio frequencies,
+  squawk, position, speed, and altitude.
+- Create flight actions: chains of waits, key presses, and clicks triggered by
+  app start, sim detection, aircraft detection, GPS jump, hotkey, or joystick
+  button.
+- Optionally start with the operating system, so the Bridge is ready after login.
 
-## Voraussetzungen
+## Requirements
 
-- Python 3.10 oder neuer.
-- Git, wenn du das Repository klonen möchtest.
-- Windows, macOS oder Linux.
+- Python 3.10 or newer.
+- Git, if you want to clone the repository.
+- Windows, macOS, or Linux.
 
-Zusätzlich braucht die Oberfläche eine Webview-Runtime:
+The UI also needs a webview runtime:
 
-- Windows: Microsoft Edge WebView2 Runtime. Auf Windows 11 ist sie normalerweise
-  vorhanden. Auf Windows 10 kann sie fehlen; die App zeigt dann beim Start einen
-  Hinweis und öffnet den Download.
-- macOS: WKWebView ist im System enthalten.
-- Linux: WebKitGTK/PyGObject, zum Beispiel auf Debian/Ubuntu:
+- Windows: Microsoft Edge WebView2 Runtime. It is usually present on Windows 11.
+  It may be missing on Windows 10; the app shows a startup message and opens the
+  download if needed.
+- macOS: WKWebView is built into the system.
+- Linux: WebKitGTK/PyGObject, for example on Debian/Ubuntu:
 
 ```bash
 sudo apt install python3-gi gir1.2-webkit2-4.1
 ```
 
-## Aus dem Quellcode starten
+### Installing Requirements On Windows
 
-Im Projektordner:
+Windows users do not use `apt install`. Install the required tools like this:
+
+1. Install Python from [python.org/downloads/windows](https://www.python.org/downloads/windows/).
+   During setup, enable `Add python.exe to PATH`.
+2. Install Git for Windows from [git-scm.com/download/win](https://git-scm.com/download/win).
+   The default installer options are fine.
+3. Open `Command Prompt` or `PowerShell` and check both tools:
+
+```bat
+python --version
+git --version
+```
+
+If `python` is not found, close and reopen the terminal. If it still is not
+found, reinstall Python and make sure `Add python.exe to PATH` is enabled.
+
+If the app says Microsoft Edge WebView2 Runtime is missing, install the
+`Evergreen Bootstrapper` from Microsoft:
+[Download WebView2 Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703).
+
+## Run From Source
+
+In the project folder:
 
 ```bash
 python3 -m venv .venv
@@ -55,7 +78,7 @@ pip install -r requirements.txt
 python bridge_app.py
 ```
 
-Auf Windows:
+On Windows:
 
 ```bat
 python -m venv .venv
@@ -64,25 +87,24 @@ pip install -r requirements.txt
 python bridge_app.py
 ```
 
-Für lokale Backend-Tests kannst du die Ziel-URL ändern:
+For local backend testing, override the target URL:
 
 ```bash
 OPENSQUAWK_BASE_URL=http://localhost:3000 python bridge_app.py
 ```
 
-## Anklickbare App bauen
+## Build A Clickable App
 
-Der Build wird immer für das Betriebssystem erstellt, auf dem du den Befehl
-ausführst. Eine Windows-`.exe` muss also auf Windows gebaut werden, eine
-macOS-`.app` auf macOS.
+The build is created for the operating system you run it on. Build the Windows
+`.exe` on Windows and the macOS `.app` on macOS.
 
-### macOS oder Linux
+### macOS Or Linux
 
 ```bash
 ./build.sh
 ```
 
-Oder direkt:
+Or directly:
 
 ```bash
 python3 build.py
@@ -90,77 +112,74 @@ python3 build.py
 
 ### Windows
 
-`build.bat` doppelklicken oder in der Eingabeaufforderung ausführen:
+Double-click `build.bat`, or run it from Command Prompt:
 
 ```bat
 build.bat
 ```
 
-Oder direkt:
+Or directly:
 
 ```bat
 python build.py
 ```
 
-Das Build-Skript installiert die nötigen Build-Werkzeuge, bündelt die Dateien aus
-`web/`, erzeugt das passende Icon und startet PyInstaller.
+The build script installs the required build tools, bundles the files from
+`web/`, creates the correct icon format, and runs PyInstaller.
 
-## Wo liegt die fertige App?
+## Where To Find The Finished App
 
-Nach dem Build findest du alles im Ordner `dist/`:
+After the build, the output is in `dist/`:
 
-| Betriebssystem | Datei/Ordner | Start |
+| Operating system | File/folder | How to start |
 | --- | --- | --- |
-| Windows | `dist\OpenSquawk Bridge.exe` | Datei doppelklicken |
-| macOS | `dist/OpenSquawk Bridge.app` | App doppelklicken oder nach `Programme` ziehen |
-| Linux | `dist/OpenSquawk Bridge/` | Programmdatei im Ordner starten |
+| Windows | `dist\OpenSquawk Bridge.exe` | Double-click the file |
+| macOS | `dist/OpenSquawk Bridge.app` | Double-click the app, or drag it to Applications |
+| Linux | `dist/OpenSquawk Bridge/` | Run the binary inside the folder |
 
-Die Builds sind aktuell nicht signiert:
+The builds are currently not signed:
 
-- Windows kann SmartScreen anzeigen. Dann `Weitere Informationen` und `Trotzdem
-  ausführen` wählen.
-- macOS kann Gatekeeper blockieren. Dann einmal Rechtsklick auf die `.app`,
-  `Öffnen` und erneut `Öffnen` wählen.
+- Windows may show SmartScreen. Choose `More info`, then `Run anyway`.
+- macOS may block the first launch. Right-click the `.app`, choose `Open`, then
+  confirm `Open` again.
 
-## Einrichtung in der App
+## App Setup
 
-1. OpenSquawk Bridge starten.
-2. `Open login in browser` anklicken.
-3. Im Browser bei opensquawk.de anmelden und den angezeigten Pairing-Code
-   verbinden.
-4. Zur App zurückkehren. Nach erfolgreicher Verbindung erscheint die Hauptansicht.
-5. Unter `Simulator` die Quelle wählen:
-   - Zum Testen `Dummy flight`.
-   - Für Microsoft Flight Simulator den passenden laufenden Simulator wählen.
-6. Optional unter `System` den Schalter `Start with operating system` aktivieren.
-   Die App richtet dann den Autostart für dein Betriebssystem ein.
-7. Unter `Live ATC` die Funkseite auf diesem PC öffnen oder den QR-Code mit einem
-   zweiten Gerät scannen.
-8. Optional unter `Push-to-talk hotkey` eine Taste, Tastenkombination oder einen
-   Joystick-Button belegen.
+1. Start OpenSquawk Bridge.
+2. Click `Open login in browser`.
+3. Sign in on opensquawk.de and link the shown pairing code.
+4. Return to the app. After linking, the main view appears.
+5. Under `Simulator`, choose the source:
+   - Use `Dummy flight` for testing.
+   - For Microsoft Flight Simulator, choose the running simulator version.
+6. Optional: under `System`, enable `Start with operating system`. The app then
+   configures autostart for your operating system.
+7. Under `Live ATC`, open the radio page on this PC or scan the QR code with a
+   second device.
+8. Optional: under `Push-to-talk hotkey`, bind a key, key combo, or joystick
+   button.
 
-Die lokale Konfiguration liegt in:
+The local configuration is stored here:
 
 ```text
 ~/.opensquawk-bridge/config.json
 ```
 
-Beim Logout vergisst die App die lokale Verbindung und erzeugt einen neuen
-Pairing-Code.
+Logging out forgets the local link and creates a new pairing code.
 
-## Projektstruktur
+## Project Layout
 
 ```text
-bridge_app.py          Desktop-App, API, Autostart, HTTP, Hintergrundthreads
-msfs_source.py         MSFS-2020/2024-Erkennung und SimConnect-Telemetrie
-simulator.py           Dummy-Flug zum Testen ohne Simulator
-actions.py             Flight-action-Ketten, Trigger und Ausführung
-web/index.html         Oberfläche
+bridge_app.py          Desktop app, API, autostart, HTTP, background threads
+msfs_source.py         MSFS 2020/2024 detection and SimConnect telemetry
+simulator.py           Dummy flight for testing without a simulator
+actions.py             Flight-action chains, triggers, and execution
+web/index.html         UI
 web/style.css          Styling
-web/app.js             Frontend-Logik
-build.py               Build-Skript für .exe/.app/Linux-Bundle
-build.bat              Windows-Build
-build.sh               macOS/Linux-Build
+web/app.js             Frontend logic
+build.py               Build script for .exe/.app/Linux bundle
+build.bat              Windows build
+build.sh               macOS/Linux build
 tests/                 Tests
 ```
 

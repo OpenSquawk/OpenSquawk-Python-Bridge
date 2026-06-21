@@ -141,6 +141,7 @@ function setSimMenu(open) {
   $("sim-menu").classList.toggle("hidden", !open);
   $("sim-select").dataset.open = open ? "true" : "false";
   $("sim-btn").setAttribute("aria-expanded", String(open));
+  $("sim-select").closest(".panel")?.classList.toggle("panel-raised", open);
 }
 
 function renderQr(state) {

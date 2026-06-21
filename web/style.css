@@ -250,12 +250,15 @@ html, body {
 #view-main { display: flex; flex-direction: column; gap: 14px; }
 
 .panel {
+  position: relative;
+  z-index: 0;
   background: var(--panel);
   border: 1px solid var(--panel-line);
   border-radius: 14px;
   padding: 16px;
   backdrop-filter: blur(14px);
 }
+.panel.panel-raised { z-index: 30; }
 .panel.launch { border-color: rgba(34, 211, 238, 0.32); }
 .panel-head {
   display: flex;
@@ -423,7 +426,7 @@ html, body {
 
 .cselect-menu {
   position: absolute; top: calc(100% + 6px); left: 0; right: 0;
-  z-index: 20;
+  z-index: 40;
   list-style: none; margin: 0; padding: 6px;
   background: rgba(12, 24, 38, 0.98);
   border: 1px solid var(--panel-line);

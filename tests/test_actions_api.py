@@ -130,3 +130,38 @@ def test_record_targets_active_chain(tmp_path, monkeypatch):
     steps = api._find_chain(cid)["steps"]
     assert steps[0] == {"type": "key", "keys": ["char:x"]}
     assert {"type": "wait", "seconds": 1.0} in steps
+
+
+def test_quicksave_adapter_roundtrips_through_source(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    class FakeSource:
+        def __init__(self):
+            self.written = None
+        def read_state(self):
+            return {"PLANE_ALTITUDE": 800.0}
+        def write_state(self, snap):
+            self.written = snap
+
+    api._quicksave = None
+    api.source = FakeSource()
+    adapter = api._make_state_adapter()
+    adapter.save()
+    adapter.load()
+    assert api.source.written == {"PLANE_ALTITUDE": 800.0}
+
+
+def test_quicksave_load_before_save_is_noop(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    class FakeSource:
+        def __init__(self):
+            self.written = "untouched"
+        def read_state(self):
+            return None
+        def write_state(self, snap):
+            self.written = snap
+
+    api._quicksave = None
+    api.source = FakeSource()
+    adapter = api._make_state_adapter()
+    adapter.load()
+    assert api.source.written == "untouched"

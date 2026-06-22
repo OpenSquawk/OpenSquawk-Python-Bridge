@@ -162,6 +162,7 @@ class BridgeApi:
 
         # active telemetry source (None = idle). Selected via the dropdown.
         self.source = None
+        self._quicksave: dict | None = None   # one RAM slot for save_state/load_state
         self.source_id = "none"
         self.aircraft: str | None = None
 
@@ -998,6 +999,33 @@ class BridgeApi:
         ).start()
         return True
 
+    def _make_state_adapter(self):
+        """Build the save()/load() adapter run_steps uses for state steps. Binds
+        the live source + the single RAM quicksave slot. Source may be None."""
+        app = self
+
+        class _StateAdapter:
+            def save(self):
+                src = app.source
+                if src is None:
+                    return
+                snap = src.read_state()
+                if snap is not None:
+                    app._quicksave = snap
+                    print("[quicksave] aircraft state saved")
+                else:
+                    print("[quicksave] save skipped — source has no state")
+
+            def load(self):
+                src = app.source
+                if src is None or app._quicksave is None:
+                    print("[quicksave] load skipped — nothing saved or no source")
+                    return
+                src.write_state(app._quicksave)
+                print("[quicksave] aircraft state restored")
+
+        return _StateAdapter()
+
     def _run_chains(self, reason: str, chains, *, arm_cooldown: bool = True) -> None:
         try:
             if self._actions_backend is None:
@@ -1015,6 +1043,7 @@ class BridgeApi:
                 actions.run_steps(
                     steps, self._actions_backend,
                     should_stop=lambda: not self._actions_running,
+                    sim=self._make_state_adapter(),
                 )
         except Exception as exc:  # pragma: no cover - real-input path
             self._log_actions_error(

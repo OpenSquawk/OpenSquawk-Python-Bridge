@@ -201,6 +201,30 @@ _SIMVAR_KEYS = {
 }
 
 
+# SimVars that quicksave/quickload reads and writes back. Separate from
+# _SIMVAR_KEYS (telemetry) because these must all be SETTABLE so a saved approach
+# can be restored mid-flight. Values are the SimConnect names; local keys mirror them.
+_SETTABLE_KEYS = {
+    "plane_latitude": "PLANE_LATITUDE",
+    "plane_longitude": "PLANE_LONGITUDE",
+    "plane_altitude": "PLANE_ALTITUDE",
+    "plane_pitch": "PLANE_PITCH_DEGREES",
+    "plane_bank": "PLANE_BANK_DEGREES",
+    "plane_heading_true": "PLANE_HEADING_DEGREES_TRUE",
+    "velocity_body_x": "VELOCITY_BODY_X",
+    "velocity_body_y": "VELOCITY_BODY_Y",
+    "velocity_body_z": "VELOCITY_BODY_Z",
+    "rot_velocity_body_x": "ROTATION_VELOCITY_BODY_X",
+    "rot_velocity_body_y": "ROTATION_VELOCITY_BODY_Y",
+    "rot_velocity_body_z": "ROTATION_VELOCITY_BODY_Z",
+    "flaps_index": "FLAPS_HANDLE_INDEX",
+    "gear_handle": "GEAR_HANDLE_POSITION",
+    "spoilers_handle": "SPOILERS_HANDLE_POSITION",
+    "throttle_1": "GENERAL_ENG_THROTTLE_LEVER_POSITION:1",
+    "throttle_2": "GENERAL_ENG_THROTTLE_LEVER_POSITION:2",
+}
+
+
 class MsfsSource:
     """Live MSFS telemetry source (standard SimVars via Python-SimConnect).
 
@@ -250,6 +274,35 @@ class MsfsSource:
         if isinstance(title, (bytes, bytearray)):
             title = title.decode("utf-8", "replace")
         return native, (title or "")
+
+    def read_state(self) -> dict | None:
+        """Snapshot the settable SimVars for quicksave. None when not connected.
+
+        Keyed by SimVar name (the same names write_state sets), so the snapshot is
+        a self-describing dict the adapter can hand straight back to write_state.
+        """
+        if not self._connected or self._aq is None:
+            return None
+        try:
+            snap = {}
+            for simvar in _SETTABLE_KEYS.values():
+                val = self._aq.get(simvar)
+                snap[simvar] = 0.0 if val is None else float(val)
+            return snap
+        except Exception:
+            self._connected = False
+            return None
+
+    def write_state(self, snap: dict) -> None:
+        """Write a quicksave snapshot back into the sim. Best-effort: a failed
+        individual set is skipped rather than aborting the whole restore."""
+        if not self._connected or self._aq is None or not snap:
+            return
+        for simvar, value in snap.items():
+            try:
+                self._aq.set(simvar, value)
+            except Exception:
+                continue
 
     def sample(self) -> "FlightState | None":
         if not self._connected:

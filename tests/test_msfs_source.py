@@ -33,3 +33,51 @@ def test_sample_returns_mapped_state(monkeypatch):
 def test_sample_none_when_disconnected():
     src = msfs_source.MsfsSource()
     assert src.sample() is None
+
+
+class FakeAq:
+    def __init__(self, values):
+        self.values = values
+        self.sets = {}
+
+    def get(self, name):
+        return self.values.get(name)
+
+    def set(self, name, value):
+        self.sets[name] = value
+
+
+def test_read_state_returns_settable_subset():
+    src = msfs_source.MsfsSource()
+    src._connected = True
+    src._aq = FakeAq({
+        "PLANE_LATITUDE": 0.5, "PLANE_LONGITUDE": -1.2, "PLANE_ALTITUDE": 1500.0,
+        "PLANE_PITCH_DEGREES": 0.01, "PLANE_BANK_DEGREES": 0.0,
+        "PLANE_HEADING_DEGREES_TRUE": 1.0,
+        "VELOCITY_BODY_X": 0.0, "VELOCITY_BODY_Y": -3.0, "VELOCITY_BODY_Z": 200.0,
+        "ROTATION_VELOCITY_BODY_X": 0.0, "ROTATION_VELOCITY_BODY_Y": 0.0,
+        "ROTATION_VELOCITY_BODY_Z": 0.0,
+        "FLAPS_HANDLE_INDEX": 3, "GEAR_HANDLE_POSITION": 1,
+        "SPOILERS_HANDLE_POSITION": 0.0,
+        "GENERAL_ENG_THROTTLE_LEVER_POSITION:1": 40.0,
+        "GENERAL_ENG_THROTTLE_LEVER_POSITION:2": 40.0,
+    })
+    snap = src.read_state()
+    assert snap["PLANE_ALTITUDE"] == 1500.0
+    assert snap["VELOCITY_BODY_Z"] == 200.0
+    assert set(snap) == set(msfs_source._SETTABLE_KEYS.values())
+
+
+def test_read_state_none_when_disconnected():
+    src = msfs_source.MsfsSource()
+    src._connected = False
+    assert src.read_state() is None
+
+
+def test_write_state_sets_each_var():
+    src = msfs_source.MsfsSource()
+    src._connected = True
+    src._aq = FakeAq({})
+    snap = {name: 1.0 for name in msfs_source._SETTABLE_KEYS.values()}
+    src.write_state(snap)
+    assert src._aq.sets == snap

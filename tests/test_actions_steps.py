@@ -27,6 +27,18 @@ def test_unknown_type_rejected():
         actions.normalize_step({"type": "explode"})
 
 
+def test_normalize_save_state():
+    assert actions.normalize_step({"type": "save_state"}) == {"type": "save_state"}
+
+
+def test_normalize_load_state():
+    assert actions.normalize_step({"type": "load_state"}) == {"type": "load_state"}
+
+
+def test_normalize_state_steps_ignore_extra_keys():
+    assert actions.normalize_step({"type": "save_state", "junk": 1}) == {"type": "save_state"}
+
+
 def test_normalize_steps_filters_and_validates_list():
     raw = [
         {"type": "wait", "seconds": 1},

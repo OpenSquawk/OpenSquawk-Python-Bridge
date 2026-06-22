@@ -46,6 +46,8 @@ def normalize_step(step: dict) -> dict:
         if button not in BUTTONS:
             button = "left"
         return {"type": "click", "x": int(step["x"]), "y": int(step["y"]), "button": button}
+    if kind in ("save_state", "load_state"):
+        return {"type": kind}
     raise ValueError(f"unknown step type: {kind!r}")
 
 

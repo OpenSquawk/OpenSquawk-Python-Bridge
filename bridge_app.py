@@ -1034,6 +1034,7 @@ class BridgeApi:
                     "failed to initialise (check bridge-error.log)"
                 )
                 return
+            sim = self._make_state_adapter()
             for chain in chains:
                 if not self._actions_running:
                     break
@@ -1043,7 +1044,7 @@ class BridgeApi:
                 actions.run_steps(
                     steps, self._actions_backend,
                     should_stop=lambda: not self._actions_running,
-                    sim=self._make_state_adapter(),
+                    sim=sim,
                 )
         except Exception as exc:  # pragma: no cover - real-input path
             self._log_actions_error(

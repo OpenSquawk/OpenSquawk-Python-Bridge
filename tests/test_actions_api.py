@@ -36,6 +36,8 @@ def _api(tmp_path, monkeypatch, chains=None):
     api._record_events = []
     api._actions_backend = FakeBackend()
     api._combo_down = {}
+    api.source = None
+    api._quicksave = None
     return api
 
 
@@ -142,7 +144,6 @@ def test_quicksave_adapter_roundtrips_through_source(tmp_path, monkeypatch):
         def write_state(self, snap):
             self.written = snap
 
-    api._quicksave = None
     api.source = FakeSource()
     adapter = api._make_state_adapter()
     adapter.save()
@@ -160,7 +161,6 @@ def test_quicksave_load_before_save_is_noop(tmp_path, monkeypatch):
         def write_state(self, snap):
             self.written = snap
 
-    api._quicksave = None
     api.source = FakeSource()
     adapter = api._make_state_adapter()
     adapter.load()

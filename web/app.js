@@ -36,6 +36,7 @@ const ICON = {
   trash: '<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>',
   record: '<circle cx="12" cy="12" r="8"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
+  bookmark: '<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>',
 };
 function svg(name, extra) {
   return '<svg class="ico' + (extra ? ' ' + extra : '') + '" viewBox="0 0 24 24" fill="none" '
@@ -44,7 +45,7 @@ function svg(name, extra) {
 }
 const SIM_ICON = { none: "ban", dummy: "box", msfs2024: "plane", msfs2020: "plane", xplane: "x", flightgear: "gear" };
 const TRIG_ICON = { app_start: "power", sim: "plug", aircraft: "plane", gps_jump: "pin", key: "keyboard", joy: "joystick" };
-const STEP_ICON = { wait: "clock", key: "keyboard", click: "mouse" };
+const STEP_ICON = { wait: "clock", key: "keyboard", click: "mouse", save_state: "bookmark", load_state: "bookmark" };
 
 // ---- flight profile path ---------------------------------------------------
 const PROFILE_POINTS = [
@@ -246,6 +247,8 @@ function stepLabel(s) {
   if (s.type === "wait") return `Wait ${s.seconds}s`;
   if (s.type === "key") return `Key ${s.keys.map(prettyKey).join(" + ")}`;
   if (s.type === "click") return `Click ${s.button} @ ${s.x},${s.y}`;
+  if (s.type === "save_state") return "Save aircraft state";
+  if (s.type === "load_state") return "Load aircraft state";
   return s.type;
 }
 
@@ -549,6 +552,12 @@ function wireEvents() {
     const y = parseInt(prompt("Click Y:", "0") || "", 10);
     if (!isNaN(x) && !isNaN(y)) { api().actions_add_step(actActiveId, { type: "click", x, y, button: "left" }); actStepsSig = ""; }
   });
+  $("act-add-save").addEventListener("click", () => {
+    api().actions_add_step(actActiveId, { type: "save_state" }); actStepsSig = "";
+  });
+  $("act-add-load").addEventListener("click", () => {
+    api().actions_add_step(actActiveId, { type: "load_state" }); actStepsSig = "";
+  });
   $("act-record").addEventListener("click", async () => {
     if (!actActiveId) return;
     const s = await api().get_state();
@@ -580,6 +589,8 @@ function initStaticIcons() {
   const tile = (id, name) => { const el = $(id)?.querySelector(".tile-ico"); if (el) el.innerHTML = svg(name); };
   tile("act-add-wait", "clock");
   tile("act-add-click", "mouse");
+  tile("act-add-save", "bookmark");
+  tile("act-add-load", "bookmark");
   tile("act-record", "record");
   const del = $("act-delete"); if (del) del.innerHTML = svg("trash");
 }

@@ -126,6 +126,14 @@ class DummyFlight:
     def reset(self) -> None:
         self._t0 = time.monotonic()
 
+    def read_state(self) -> dict | None:
+        """Dummy source has no settable state to capture."""
+        return None
+
+    def write_state(self, snap: dict) -> None:
+        """Dummy source cannot be teleported — no-op."""
+        return None
+
     def progress(self) -> float:
         elapsed = (time.monotonic() - self._t0) % self.loop_seconds
         return elapsed / self.loop_seconds

@@ -16,3 +16,13 @@ def test_flightstate_has_new_fields():
                      flight_active=False, aircraft="X", connected=True)
     assert fs.aircraft == "X"
     assert fs.connected is True
+
+
+def test_dummy_read_state_is_none():
+    from simulator import DummyFlight
+    assert DummyFlight().read_state() is None
+
+
+def test_dummy_write_state_is_noop():
+    from simulator import DummyFlight
+    DummyFlight().write_state({"PLANE_ALTITUDE": 1.0})  # must not raise

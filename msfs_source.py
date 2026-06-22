@@ -295,7 +295,12 @@ class MsfsSource:
 
     def write_state(self, snap: dict) -> None:
         """Write a quicksave snapshot back into the sim. Best-effort: a failed
-        individual set is skipped rather than aborting the whole restore."""
+        individual set is skipped rather than aborting the whole restore.
+
+        Unlike read_state, a write failure does not mark _connected=False — a
+        transient set error is less disqualifying than a failed read, and a
+        genuine disconnect will be detected by the next sample() call.
+        """
         if not self._connected or self._aq is None or not snap:
             return
         for simvar, value in snap.items():

@@ -162,10 +162,12 @@ def run_steps(
     steps: list[dict],
     backend,
     should_stop: Callable[[], bool] | None = None,
+    sim=None,
 ) -> None:
     """Execute `steps` against `backend`. `backend` must provide send_keys(keys),
     click(x, y, button) and sleep(seconds). Checked between steps, `should_stop`
-    lets a caller abort a running chain.
+    lets a caller abort a running chain. `sim`, when given, provides save()/load()
+    for the save_state/load_state steps; without it those steps are no-ops.
     """
     for step in steps:
         if should_stop is not None and should_stop():
@@ -177,6 +179,12 @@ def run_steps(
             backend.send_keys(step["keys"])
         elif kind == "click":
             backend.click(step["x"], step["y"], step["button"])
+        elif kind == "save_state":
+            if sim is not None:
+                sim.save()
+        elif kind == "load_state":
+            if sim is not None:
+                sim.load()
 
 
 def _sleep_interruptible(backend, seconds, should_stop) -> None:

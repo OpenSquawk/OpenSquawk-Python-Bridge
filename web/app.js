@@ -107,7 +107,7 @@ let simsSig = "";
 let simMenuOpen = false;
 function renderSimulators(state) {
   const sources = state.sources || [];
-  const sig = JSON.stringify(sources.map((s) => [s.id, s.available])) + "|" + state.source_id;
+  const sig = JSON.stringify(sources.map((s) => [s.id, s.available, s.badge])) + "|" + state.source_id;
   if (sig === simsSig) return;            // only re-render on real change
   simsSig = sig;
 
@@ -127,7 +127,7 @@ function renderSimulators(state) {
     li.dataset.available = s.available ? "1" : "0";
     li.innerHTML = svg(SIM_ICON[s.id] || "plane")
       + `<span class="cs-label">${escapeHtml(s.label)}</span>`
-      + (s.available ? "" : '<span class="cs-soon">soon</span>')
+      + (s.available ? "" : `<span class="cs-soon">${escapeHtml(s.badge || "soon")}</span>`)
       + (s.id === state.source_id ? svg("check", "cs-check") : "");
     menu.appendChild(li);
   });
@@ -143,6 +143,90 @@ function setSimMenu(open) {
   $("sim-select").dataset.open = open ? "true" : "false";
   $("sim-btn").setAttribute("aria-expanded", String(open));
   $("sim-select").closest(".panel")?.classList.toggle("panel-raised", open);
+}
+
+// ---- simulator setup dialog (X-Plane / FlightGear previews) ----------------
+const SETUP_SIMS = { xplane: "X-Plane", flightgear: "FlightGear", msfs2024: "MSFS 2024", msfs2020: "MSFS 2020" };
+let setupSource = null;      // source id the dialog is guiding, or null when closed
+let setupTimer = null;       // setup_status poll handle
+let setupDismissedFor = null; // source the user closed the dialog on (don't reopen)
+let setupStepsSig = "";
+
+function openSetup(sourceId) {
+  if (!SETUP_SIMS[sourceId]) return;
+  setupSource = sourceId;
+  setupStepsSig = "";
+  $("setup-title").textContent = "Connect " + SETUP_SIMS[sourceId];
+  $("setup-steps").innerHTML = "";
+  $("setup-done").hidden = true;
+  $("setup-overlay").classList.remove("hidden");
+  pollSetup();
+  clearInterval(setupTimer);
+  setupTimer = setInterval(pollSetup, 1200);
+}
+
+function closeSetup(dismissed) {
+  if (dismissed && setupSource) setupDismissedFor = setupSource;
+  setupSource = null;
+  clearInterval(setupTimer);
+  setupTimer = null;
+  $("setup-overlay").classList.add("hidden");
+}
+
+async function pollSetup() {
+  if (!setupSource || !apiReady) return;
+  let data;
+  try { data = await api().setup_status(setupSource); }
+  catch (e) { return; }
+  if (!setupSource) return;           // closed while awaiting
+  renderSetupSteps(data);
+}
+
+function renderSetupSteps(data) {
+  const steps = data.steps || [];
+  const sig = JSON.stringify(steps.map((s) => [s.key, s.ok])) + "|" + data.ready;
+  if (sig !== setupStepsSig) {
+    setupStepsSig = sig;
+    const ul = $("setup-steps");
+    ul.innerHTML = "";
+    steps.forEach((s) => {
+      const li = document.createElement("li");
+      li.className = "setup-step" + (s.ok ? " ok" : "");
+      li.innerHTML =
+        '<span class="setup-step-mark"></span>'
+        + '<span class="setup-step-body">'
+        + '<span class="setup-step-label">' + escapeHtml(s.label) + '</span>'
+        + (!s.ok && s.hint ? '<span class="setup-step-hint">' + escapeHtml(s.hint) + '</span>' : '')
+        + (s.detail ? '<span class="setup-step-detail">' + escapeHtml(s.detail) + '</span>' : '')
+        + '</span>';
+      ul.appendChild(li);
+    });
+  }
+  const state = $("setup-state");
+  const dot = $("setup-dot");
+  if (data.ready) {
+    state.classList.add("ready");
+    dot.className = "dot dot-green";
+    $("setup-state-label").textContent = "Connected — telemetry is live.";
+    $("setup-done").hidden = false;
+  } else {
+    state.classList.remove("ready");
+    dot.className = "dot dot-amber";
+    $("setup-state-label").textContent = "Waiting for simulator…";
+    $("setup-done").hidden = true;
+  }
+}
+
+// Decide whether the setup dialog should be shown for the current state. Opens
+// once when a preview source is active but not yet streaming; auto-closes as
+// soon as telemetry flows. Respects a manual close until the source changes.
+function syncSetupDialog(state) {
+  const id = state.source_id;
+  if (!SETUP_SIMS[id]) { if (setupSource) closeSetup(false); setupDismissedFor = null; return; }
+  if (setupDismissedFor && setupDismissedFor !== id) setupDismissedFor = null;
+  const streaming = state.stream_status === "streaming";
+  if (streaming) { if (setupSource) closeSetup(false); return; }
+  if (!setupSource && setupDismissedFor !== id) openSetup(id);
 }
 
 function renderQr(state) {
@@ -442,6 +526,7 @@ async function tick() {
     const state = await api().get_state();
     renderSimulators(state);
     render(state);
+    syncSetupDialog(state);
   } catch (e) { /* backend not ready */ }
 }
 
@@ -492,12 +577,26 @@ function wireEvents() {
     if (!opt) return;
     if (opt.dataset.available === "0") return;     // coming soon → not selectable
     setSimMenu(false);
-    if (opt.dataset.id !== undefined) { simsSig = ""; api().set_source(opt.dataset.id); }
+    if (opt.dataset.id !== undefined) {
+      simsSig = "";
+      setupDismissedFor = null;   // an explicit pick should always show the dialog
+      api().set_source(opt.dataset.id);
+    }
   });
   document.addEventListener("click", (e) => {
     if (simMenuOpen && !e.target.closest("#sim-select")) setSimMenu(false);
   });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && simMenuOpen) setSimMenu(false); });
+
+  // simulator setup dialog
+  $("setup-close").addEventListener("click", () => closeSetup(true));
+  $("setup-done").addEventListener("click", () => closeSetup(true));
+  $("setup-overlay").addEventListener("click", (e) => {
+    if (e.target === $("setup-overlay")) closeSetup(true);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && setupSource) closeSetup(true);
+  });
   $("ptt-head").addEventListener("click", () => {
     const open = !$("ptt-body").classList.toggle("hidden");
     $("ptt-head").setAttribute("aria-expanded", String(open));

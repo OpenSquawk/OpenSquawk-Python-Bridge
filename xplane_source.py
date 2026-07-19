@@ -22,7 +22,13 @@ import struct
 import time
 
 from msfs_source import PhaseEstimator
+from sim_detect import process_running
 from simulator import FlightState
+
+# Command-line fragments identifying an X-Plane process on any OS
+# (X-Plane.exe on Windows, the "X-Plane" app binary on macOS,
+# X-Plane-x86_64 on Linux — all contain "x-plane").
+_XPLANE_PROCS = ("x-plane",)
 
 XPLANE_HOST = "127.0.0.1"
 XPLANE_PORT = 49000     # X-Plane's default UDP command port
@@ -121,11 +127,67 @@ def map_datarefs(v: dict) -> dict:
     }
 
 
+def xplane_available() -> bool:
+    """Cheap: is an X-Plane process running? Drives the dropdown/auto-select."""
+    return process_running(_XPLANE_PROCS)
+
+
+def probe_data(host: str = XPLANE_HOST, port: int = XPLANE_PORT,
+               timeout: float = 0.6) -> bool:
+    """One-shot RREF probe: subscribe to a single dataref and see if X-Plane
+    answers. True means the sim is up and pushing (a flight is loaded and not
+    stuck on the main menu). Uses its own ephemeral socket so it never disturbs
+    a live XPlaneSource."""
+    dataref = next(iter(_DATAREFS.values()))
+    sock = None
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(timeout)
+        sock.sendto(build_rref_request(0, 5, dataref), (host, port))
+        sock.recvfrom(4096)  # any reply = X-Plane is answering
+        sock.sendto(build_rref_request(0, 0, dataref), (host, port))  # unsubscribe
+        return True
+    except OSError:
+        return False
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+
+def setup_checks(host: str = XPLANE_HOST, port: int = XPLANE_PORT) -> dict:
+    """Ordered setup steps for the connect dialog, each with a live ok flag.
+
+    `ready` is true once flight data actually arrives — that's the condition
+    the dialog turns green on and the auto-select loop keys off.
+    """
+    data = probe_data(host, port)
+    proc = data or xplane_available()  # data implies the process is up
+    steps = [
+        {
+            "key": "process", "label": "X-Plane is running", "ok": proc,
+            "hint": "Start X-Plane 10, 11 or 12 on this computer.",
+        },
+        {
+            "key": "data", "label": "Receiving flight data", "ok": data,
+            "hint": "Load a flight and leave the main menu — X-Plane sends data "
+                    "only once a flight is active.",
+            "detail": f"UDP {host}:{port}",
+        },
+    ]
+    return {"ready": data, "steps": steps}
+
+
 class XPlaneSource:
     """Live X-Plane telemetry source (developer preview, X-Plane 10+)."""
 
     id = "xplane"
     AIRCRAFT = "X-Plane aircraft"
+    # UDP is connectionless: open() cannot fail on a stopped sim, so the source
+    # stays selected and connects whenever data starts arriving.
+    tolerant_open = True
 
     def __init__(self, host: str = XPLANE_HOST, port: int = XPLANE_PORT) -> None:
         self._addr = (host, port)

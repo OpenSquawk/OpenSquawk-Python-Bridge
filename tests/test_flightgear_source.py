@@ -95,3 +95,33 @@ def test_state_roundtrip_is_noop():
     src = FlightGearSource()
     assert src.read_state() is None
     assert src.write_state({"x": 1}) is None
+
+
+import flightgear_source
+
+
+def test_flightgear_running_uses_process_detection(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(flightgear_source, "process_running",
+                        lambda pats: (seen.__setitem__("pats", pats), True)[1])
+    assert flightgear_source.flightgear_running() is True
+    assert seen["pats"] == flightgear_source._FG_PROCS
+
+
+def test_setup_checks_ready_when_httpd(monkeypatch):
+    monkeypatch.setattr(flightgear_source, "httpd_reachable", lambda *a, **k: True)
+    out = flightgear_source.setup_checks()
+    assert out["ready"] is True
+    steps = {s["key"]: s for s in out["steps"]}
+    assert steps["process"]["ok"] is True   # reachable server implies fgfs runs
+    assert steps["httpd"]["ok"] is True
+
+
+def test_setup_checks_process_up_but_no_httpd(monkeypatch):
+    monkeypatch.setattr(flightgear_source, "httpd_reachable", lambda *a, **k: False)
+    monkeypatch.setattr(flightgear_source, "process_running", lambda pats: True)
+    out = flightgear_source.setup_checks()
+    assert out["ready"] is False
+    steps = {s["key"]: s for s in out["steps"]}
+    assert steps["process"]["ok"] is True
+    assert steps["httpd"]["ok"] is False    # the --httpd step the user missed

@@ -233,6 +233,10 @@ class MsfsSource:
     sim is running on the pipe.
     """
 
+    # Selecting MSFS before the sim is up shouldn't hard-fail: keep it selected
+    # and connect once the sim is running (sample() reconnects on a backoff).
+    tolerant_open = True
+
     def __init__(self, version: str = "2024") -> None:
         self.version = version
         self.id = f"msfs{version}"

@@ -767,3 +767,60 @@ html, body {
 /* thin scrollbar for app feel */
 .content::-webkit-scrollbar { width: 9px; }
 .content::-webkit-scrollbar-thumb { background: rgba(120,170,200,0.18); border-radius: 8px; }
+
+/* ---- simulator setup dialog ---------------------------------------------- */
+.setup-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  background: rgba(4, 10, 18, 0.68);
+  backdrop-filter: blur(3px);
+}
+.setup-modal {
+  width: 100%; max-width: 440px;
+  background: linear-gradient(180deg, var(--bg-2), var(--bg));
+  border: 1px solid var(--panel-line);
+  border-radius: 14px;
+  box-shadow: 0 0 0 1px var(--panel-line), 0 18px 50px rgba(0,0,0,0.55);
+  padding: 20px 22px 18px;
+}
+.setup-head { display: flex; align-items: center; justify-content: space-between; }
+.setup-title { font-size: 15px; font-weight: 700; color: var(--cyan-bright); letter-spacing: 0.3px; }
+.setup-head .icon-btn:hover { color: var(--danger); }
+.setup-sub { color: var(--muted); font-size: 12.5px; line-height: 1.5; margin: 8px 0 16px; }
+.setup-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.setup-step { display: flex; gap: 12px; align-items: flex-start; }
+.setup-step-mark {
+  flex: none; width: 22px; height: 22px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--panel-line); color: var(--muted-2);
+  background: rgba(255,255,255,0.02);
+  transition: background 0.25s, border-color 0.25s, color 0.25s;
+}
+.setup-step.ok .setup-step-mark {
+  background: var(--green); border-color: transparent; color: #06212b;
+}
+.setup-step.ok .setup-step-mark::after { content: "✓"; font-size: 13px; font-weight: 800; }
+.setup-step:not(.ok) .setup-step-mark::after {
+  content: ""; width: 7px; height: 7px; border-radius: 50%;
+  border: 2px solid var(--muted-2); border-top-color: transparent;
+  animation: setup-spin 0.9s linear infinite;
+}
+@keyframes setup-spin { to { transform: rotate(360deg); } }
+.setup-step-body { flex: 1; min-width: 0; }
+.setup-step-label { display: block; font-size: 13px; font-weight: 600; color: var(--text); }
+.setup-step.ok .setup-step-label { color: var(--green); }
+.setup-step-hint { display: block; font-size: 12px; color: var(--muted); line-height: 1.5; margin-top: 3px; }
+.setup-step-detail {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; color: var(--muted-2); margin-top: 4px;
+  word-break: break-all;
+}
+.setup-modal [hidden] { display: none !important; }
+.setup-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--panel-line);
+}
+.setup-state { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.setup-state.ready { color: var(--green); }

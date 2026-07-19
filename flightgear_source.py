@@ -21,7 +21,11 @@ import time
 import requests
 
 from msfs_source import PhaseEstimator
+from sim_detect import process_running
 from simulator import FlightState
+
+# FlightGear's binary is "fgfs" on every OS (fgfs.exe on Windows).
+_FG_PROCS = ("fgfs",)
 
 FG_HOST = "127.0.0.1"
 FG_PORT = 8080          # matches the suggested launch flag --httpd=8080
@@ -111,10 +115,55 @@ def map_props(v: dict) -> dict:
     }
 
 
+def flightgear_running() -> bool:
+    """Cheap: is a FlightGear (fgfs) process running?"""
+    return process_running(_FG_PROCS)
+
+
+def httpd_reachable(host: str = FG_HOST, port: int = FG_PORT,
+                    timeout: float = 0.4) -> bool:
+    """True if FlightGear's property webserver answers — the condition that
+    actually matters (a running fgfs without --httpd gives us nothing)."""
+    try:
+        r = requests.get(f"http://{host}:{port}/json/position",
+                         params={"d": "1"}, timeout=timeout)
+        return r.ok
+    except requests.RequestException:
+        return False
+
+
+def setup_checks(host: str = FG_HOST, port: int = FG_PORT) -> dict:
+    """Ordered setup steps for the connect dialog, each with a live ok flag.
+
+    `ready` keys off the property server being reachable — the step users most
+    often miss, since FlightGear does not enable it by default.
+    """
+    httpd = httpd_reachable(host, port)
+    proc = httpd or flightgear_running()  # a reachable server implies fgfs runs
+    steps = [
+        {
+            "key": "process", "label": "FlightGear is running", "ok": proc,
+            "hint": "Start FlightGear on this computer.",
+        },
+        {
+            "key": "httpd",
+            "label": f"Property server enabled on port {port}", "ok": httpd,
+            "hint": f"Launch FlightGear with  --httpd={port}  "
+                    "(Settings → Additional Settings in the launcher, or the "
+                    "command line). This is off by default.",
+            "detail": f"http://{host}:{port}",
+        },
+    ]
+    return {"ready": httpd, "steps": steps}
+
+
 class FlightGearSource:
     """Live FlightGear telemetry source (developer preview)."""
 
     id = "flightgear"
+    # Selecting FlightGear before --httpd is enabled shouldn't hard-fail: keep
+    # it selected and connect once the property server comes up.
+    tolerant_open = True
 
     def __init__(self, host: str = FG_HOST, port: int = FG_PORT) -> None:
         self._base = f"http://{host}:{port}"

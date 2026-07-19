@@ -102,3 +102,30 @@ def test_state_roundtrip_is_noop():
     src = XPlaneSource()
     assert src.read_state() is None
     assert src.write_state({"x": 1}) is None
+
+
+def test_xplane_available_uses_process_detection(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(xplane_source, "process_running",
+                        lambda pats: (seen.__setitem__("pats", pats), True)[1])
+    assert xplane_source.xplane_available() is True
+    assert seen["pats"] == xplane_source._XPLANE_PROCS
+
+
+def test_setup_checks_ready_when_data(monkeypatch):
+    monkeypatch.setattr(xplane_source, "probe_data", lambda *a, **k: True)
+    out = xplane_source.setup_checks()
+    assert out["ready"] is True
+    steps = {s["key"]: s for s in out["steps"]}
+    assert steps["process"]["ok"] is True   # data implies process
+    assert steps["data"]["ok"] is True
+
+
+def test_setup_checks_not_ready_without_data(monkeypatch):
+    monkeypatch.setattr(xplane_source, "probe_data", lambda *a, **k: False)
+    monkeypatch.setattr(xplane_source, "process_running", lambda pats: True)
+    out = xplane_source.setup_checks()
+    assert out["ready"] is False
+    steps = {s["key"]: s for s in out["steps"]}
+    assert steps["process"]["ok"] is True    # sim up, but no flight loaded
+    assert steps["data"]["ok"] is False

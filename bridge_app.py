@@ -45,6 +45,7 @@ AUTOSTART_APP_ID = "de.opensquawk.bridge"
 POLL_INTERVAL = 2.0     # seconds, GET /me while waiting / linked
 STREAM_INTERVAL = 1.0   # seconds, POST /data while sim active
 STREAM_STALE_SECONDS = 3.0
+AUTODETECT_INTERVAL = 3.0  # seconds between idle sim auto-detect passes
 REQUEST_TIMEOUT = 8
 
 # After an event trigger fires, no other event trigger may run until the chain
@@ -165,6 +166,9 @@ class BridgeApi:
         self._quicksave: dict | None = None   # one RAM slot for save_state/load_state
         self.source_id = "none"
         self.aircraft: str | None = None
+        # Once the user picks a source (or "none") we stop auto-selecting so we
+        # never fight an explicit choice. Reset on logout / source switch away.
+        self._user_touched_source = False
 
         # stream health
         self.last_data_ok_at: float | None = None
@@ -180,6 +184,7 @@ class BridgeApi:
 
         threading.Thread(target=self._poll_loop, daemon=True).start()
         threading.Thread(target=self._stream_loop, daemon=True).start()
+        threading.Thread(target=self._autodetect_loop, daemon=True).start()
         self._start_ptt_listener()
         self._start_joystick_listener()
         self._start_mouse_listener()
@@ -359,6 +364,53 @@ class BridgeApi:
             if self.source is not None and self.connected:
                 self._tick_stream()
             self._stop.wait(STREAM_INTERVAL)
+
+    def _autodetect_loop(self) -> None:
+        """Auto-select a sim when the app is idle and exactly one is ready.
+
+        Runs on a slow cadence. Only acts while linked, still on "none", and the
+        user hasn't touched the dropdown — so it's a convenience that never
+        overrides an explicit choice.
+        """
+        while not self._stop.is_set():
+            self._stop.wait(AUTODETECT_INTERVAL)
+            if self._stop.is_set():
+                break
+            with self._lock:
+                idle = (self.source_id == "none"
+                        and not self._user_touched_source
+                        and self.connected)
+            if not idle:
+                continue
+            ready = self._detect_ready_sources()
+            if len(ready) == 1:
+                self.set_source(ready[0], _auto=True)
+
+    @staticmethod
+    def _detect_ready_sources() -> list[str]:
+        """Ids of sims that are ready to stream right now (best-effort, cheap)."""
+        ready: list[str] = []
+        try:
+            from msfs_source import msfs_available
+            if msfs_available("2024"):
+                ready.append("msfs2024")
+            elif msfs_available("2020"):
+                ready.append("msfs2020")
+        except Exception:
+            pass
+        try:
+            from xplane_source import xplane_available
+            if xplane_available():
+                ready.append("xplane")
+        except Exception:
+            pass
+        try:
+            from flightgear_source import httpd_reachable
+            if httpd_reachable():
+                ready.append("flightgear")
+        except Exception:
+            pass
+        return ready
 
     def _report_status(self, *, sim_connected: bool, flight_active: bool) -> None:
         try:
@@ -821,6 +873,7 @@ class BridgeApi:
             self.user = None
             self.last_data_ok_at = None
             self.last_telemetry = None
+            self._user_touched_source = False  # let auto-detect run for the next session
         self._reset_actions_runtime()
         if src is not None:
             try:
@@ -831,22 +884,22 @@ class BridgeApi:
         return {"ok": True, "token": self.token}
 
     def _sources_for_ui(self) -> list[dict]:
-        """Source list with runtime availability for the dropdown."""
-        from msfs_source import msfs_available
-        avail = {
-            "none": True, "dummy": True,
-            "msfs2024": msfs_available("2024"),
-            "msfs2020": msfs_available("2020"),
-            # Developer previews: no cheap process probe (X-Plane is UDP and
-            # connectionless, FlightGear needs --httpd), so always selectable —
-            # connection state surfaces after selection instead.
-            "xplane": True,
-            "flightgear": True,
-        }
+        """Source list with runtime availability + an optional disabled badge.
+
+        Sources are selectable even when the sim isn't up yet: selecting one
+        opens the setup dialog (setup_status), which live-checks the steps and
+        connects once they pass. The one hard block is MSFS off Windows — it
+        needs SimConnect.dll, so we grey it out with a "Windows only" badge
+        instead of a misleading "soon".
+        """
+        is_win = sys.platform.startswith("win")
         out = []
         for s in SOURCES:
-            available = avail.get(s["id"], not s.get("coming_soon", False))
-            out.append({"id": s["id"], "label": s["label"], "available": available})
+            entry = {"id": s["id"], "label": s["label"], "available": True}
+            if s["id"] in ("msfs2024", "msfs2020") and not is_win:
+                entry["available"] = False
+                entry["badge"] = "Windows only"
+            out.append(entry)
         return out
 
     def _make_source(self, source_id: str):
@@ -864,11 +917,18 @@ class BridgeApi:
             return FlightGearSource()
         return None
 
-    def set_source(self, source_id: str) -> dict:
-        """Switch the active telemetry source. 'none' stops streaming."""
+    def set_source(self, source_id: str, _auto: bool = False) -> dict:
+        """Switch the active telemetry source. 'none' stops streaming.
+
+        `_auto` marks a switch made by the auto-detect loop; a user-initiated
+        call (the default) records that the dropdown was touched so auto-detect
+        backs off from then on.
+        """
         valid = {s["id"] for s in SOURCES}
         if source_id not in valid:
             return {"ok": False, "error": "Unknown source."}
+        if not _auto:
+            self._user_touched_source = True
         with self._lock:
             old = self.source
         if old is not None:
@@ -883,11 +943,15 @@ class BridgeApi:
             try:
                 new.open()
             except Exception as exc:
-                with self._lock:
-                    self.source = None
-                    self.source_id = "none"
-                    self.error = f"Could not start {source_id}: {exc.__class__.__name__}"
-                return {"ok": False, "error": self.error}
+                # Tolerant sources (X-Plane/FlightGear previews) stay selected on
+                # an open() failure and connect once the sim/property server is
+                # up — the setup dialog guides the user meanwhile. Others revert.
+                if not getattr(new, "tolerant_open", False):
+                    with self._lock:
+                        self.source = None
+                        self.source_id = "none"
+                        self.error = f"Could not start {source_id}: {exc.__class__.__name__}"
+                    return {"ok": False, "error": self.error}
         with self._lock:
             self.source = new
             self.source_id = source_id
@@ -897,6 +961,29 @@ class BridgeApi:
             self.last_data_ok_at = None
         self._reset_actions_runtime()
         return {"ok": True, "source_id": source_id}
+
+    def setup_status(self, source_id: str) -> dict:
+        """Live setup checklist for the connect dialog: ordered steps each with
+        an `ok` flag, plus an overall `ready`. Cheap enough to poll at a few Hz.
+        """
+        try:
+            if source_id == "flightgear":
+                from flightgear_source import setup_checks
+                return setup_checks()
+            if source_id == "xplane":
+                from xplane_source import setup_checks
+                return setup_checks()
+            if source_id in ("msfs2024", "msfs2020"):
+                from msfs_source import msfs_available
+                version = source_id.removeprefix("msfs")
+                ok = msfs_available(version)
+                return {"ready": ok, "steps": [{
+                    "key": "process", "label": f"MSFS {version} is running",
+                    "ok": ok, "hint": "Start Microsoft Flight Simulator.",
+                }]}
+        except Exception as exc:
+            return {"ready": False, "steps": [], "error": exc.__class__.__name__}
+        return {"ready": True, "steps": []}
 
     # ---- flight actions ----------------------------------------------------
 

@@ -297,6 +297,25 @@
     </section>
   </main>
 
+  <!-- Simulator setup dialog (X-Plane / FlightGear developer previews) -->
+  <div id="setup-overlay" class="setup-overlay hidden">
+    <div class="setup-modal" role="dialog" aria-modal="true" aria-labelledby="setup-title">
+      <div class="setup-head">
+        <span class="setup-title" id="setup-title">Connect simulator</span>
+        <button class="icon-btn" id="setup-close" title="Close">✕</button>
+      </div>
+      <p class="setup-sub" id="setup-sub">Follow these steps — each turns green as soon as it's detected.</p>
+      <ul class="setup-steps" id="setup-steps"></ul>
+      <div class="setup-foot">
+        <span class="setup-state" id="setup-state">
+          <span class="dot dot-amber" id="setup-dot"></span>
+          <span id="setup-state-label">Waiting for simulator…</span>
+        </span>
+        <button class="btn btn-small btn-ghost" id="setup-done" hidden>Done</button>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

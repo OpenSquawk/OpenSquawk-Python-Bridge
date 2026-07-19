@@ -63,8 +63,8 @@ SOURCES = [
     {"id": "dummy", "label": "Dummy flight"},
     {"id": "msfs2024", "label": "MSFS 2024"},
     {"id": "msfs2020", "label": "MSFS 2020"},
-    {"id": "xplane", "label": "X-Plane", "coming_soon": True},
-    {"id": "flightgear", "label": "FlightGear", "coming_soon": True},
+    {"id": "xplane", "label": "X-Plane (developer preview)"},
+    {"id": "flightgear", "label": "FlightGear (developer preview)"},
 ]
 
 WEB_DIR = _resource_dir() / "web"
@@ -837,6 +837,11 @@ class BridgeApi:
             "none": True, "dummy": True,
             "msfs2024": msfs_available("2024"),
             "msfs2020": msfs_available("2020"),
+            # Developer previews: no cheap process probe (X-Plane is UDP and
+            # connectionless, FlightGear needs --httpd), so always selectable —
+            # connection state surfaces after selection instead.
+            "xplane": True,
+            "flightgear": True,
         }
         out = []
         for s in SOURCES:
@@ -851,6 +856,12 @@ class BridgeApi:
         if source_id in ("msfs2024", "msfs2020"):
             from msfs_source import MsfsSource
             return MsfsSource(version=source_id.removeprefix("msfs"))
+        if source_id == "xplane":
+            from xplane_source import XPlaneSource
+            return XPlaneSource()
+        if source_id == "flightgear":
+            from flightgear_source import FlightGearSource
+            return FlightGearSource()
         return None
 
     def set_source(self, source_id: str) -> dict:

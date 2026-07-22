@@ -13,27 +13,31 @@ Output (in ./dist):
   OpenSquawk Bridge.app          macOS launcher bundle          (macOS host only)
   OpenSquawk-Bridge-macOS.dmg    macOS single file to publish   (macOS host only)
   OpenSquawk-Bridge-linux.sh     Linux single file to publish   (any host)
+  OpenSquawk-Bridge-windows.cmd  Windows single file to publish (any host)
 
 The macOS artifacts need sips / iconutil / hdiutil, so they build on macOS only.
-The Linux artifact is plain text assembly and builds on any host. Windows uses a
-separate script (installer/build_launcher_windows.py). Nothing is signed.
+The Linux and Windows artifacts are plain text assembly (bootstrap.py is
+embedded) and build on any host. Nothing is signed.
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
 import os
 import platform
 import shutil
 import stat
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 INSTALLER = ROOT / "installer"
 MAC = INSTALLER / "mac"
 LINUX = INSTALLER / "linux"
+WINDOWS = INSTALLER / "windows"
 BOOTSTRAP = INSTALLER / "bootstrap.py"
 ICON_PNG = ROOT / "web" / "assets" / "icon.png"
 BUILD = ROOT / "build"
@@ -63,6 +67,23 @@ def build_linux() -> Path:
     out = DIST / "OpenSquawk-Bridge-linux.sh"
     out.write_text(script)
     out.chmod(out.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Windows (any host)
+# --------------------------------------------------------------------------- #
+
+def build_windows() -> Path:
+    template = (WINDOWS / "launcher-template.cmd").read_text()
+    b64 = base64.b64encode(BOOTSTRAP.read_bytes()).decode("ascii")
+    block = "\n".join(textwrap.wrap(b64, 120))
+    script = template.replace("@BASE64@", block)
+
+    DIST.mkdir(parents=True, exist_ok=True)
+    out = DIST / "OpenSquawk-Bridge-windows.cmd"
+    # CRLF so the batch file is well-formed on Windows.
+    out.write_bytes(script.replace("\n", "\r\n").encode("utf-8"))
     return out
 
 
@@ -141,9 +162,12 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mac", action="store_true", help="build only macOS")
     ap.add_argument("--linux", action="store_true", help="build only Linux")
+    ap.add_argument("--windows", action="store_true", help="build only Windows")
     args = ap.parse_args()
-    want_mac = args.mac or not (args.mac or args.linux)
-    want_linux = args.linux or not (args.mac or args.linux)
+    only = args.mac or args.linux or args.windows
+    want_mac = args.mac or not only
+    want_linux = args.linux or not only
+    want_windows = args.windows or not only
 
     if not ICON_PNG.exists():
         print(f"error: missing icon at {ICON_PNG}", file=sys.stderr)
@@ -152,6 +176,8 @@ def main() -> int:
     outputs: list[Path] = []
     if want_linux:
         outputs.append(build_linux())
+    if want_windows:
+        outputs.append(build_windows())
     if want_mac:
         if platform.system() == "Darwin":
             outputs += build_mac()
@@ -165,8 +191,9 @@ def main() -> int:
     print("\n\033[32m✓ Done.\033[0m Built:")
     for p in outputs:
         print(f"  {p.relative_to(ROOT)}")
-    print("\n  Unsigned. On macOS: right-click → Open the first time.")
-    print("  On Linux: chmod +x the .sh and run it.")
+    print("\n  Unsigned. macOS: right-click → Open the first time.")
+    print("  Linux: chmod +x the .sh and run it.")
+    print("  Windows: double-click the .cmd (SmartScreen → More info → Run anyway).")
     return 0
 
 

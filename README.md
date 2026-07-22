@@ -53,7 +53,22 @@ X11/Wayland desktops. Very minimal installs may still miss common system
 libraries (e.g. `libnss3`, `libxkbcommon`) — install those from your distro if
 the app fails to open a window.
 
-> A Windows installer using the same approach is coming next.
+## Install (Windows)
+
+Same idea: one self-updating file.
+
+1. Download **OpenSquawk-Bridge-windows.cmd**.
+2. Double-click it. Windows SmartScreen may warn because it is unsigned —
+   choose **More info → Run anyway**.
+
+A setup window appears on the first launch (it downloads a private Python
+runtime and the app's dependencies — about a minute). When setup finishes the
+window closes and the app opens; on later launches it starts quickly. Every
+launch updates itself from GitHub automatically.
+
+Installed files live under `%LOCALAPPDATA%\OpenSquawk Bridge\`. Delete that
+folder to reset the install; delete `%USERPROFILE%\.opensquawk-bridge\` to forget
+your account link.
 
 ## Features
 
@@ -152,19 +167,23 @@ push to `main` (or publish a GitHub Release) and users get it on their next
 launch. Rebuild the launcher only when the launcher/bootstrap itself changes:
 
 ```bash
-python3 installer/build_launcher.py           # everything this host can build
-python3 installer/build_launcher.py --linux   # only the Linux .sh
-python3 installer/build_launcher.py --mac      # only the macOS .app + .dmg
+python3 installer/build_launcher.py            # everything this host can build
+python3 installer/build_launcher.py --linux    # only the Linux .sh
+python3 installer/build_launcher.py --windows  # only the Windows .cmd
+python3 installer/build_launcher.py --mac       # only the macOS .app + .dmg
 ```
 
 Outputs in `dist/`:
 
 - `OpenSquawk-Bridge-macOS.dmg` + `OpenSquawk Bridge.app` — macOS only (needs
   `sips`/`iconutil`/`hdiutil`).
-- `OpenSquawk-Bridge-linux.sh` — a single self-updating file; plain text
-  assembly, so it builds on any host. `bootstrap.py` is embedded into it.
+- `OpenSquawk-Bridge-linux.sh` — single self-updating file; builds on any host.
+- `OpenSquawk-Bridge-windows.cmd` — single self-updating file; builds on any
+  host.
 
-Link the `.dmg` / `.sh` on the website. No signing.
+The Linux/Windows files embed `bootstrap.py` at build time, so there is one
+source of truth (`installer/bootstrap.py`). Link the `.dmg` / `.sh` / `.cmd` on
+the website. No signing.
 
 The update channel is: latest GitHub **Release** if any exists, otherwise the
 tip of `main`. So publishing a release (`gh release create vX.Y.Z --notes …`)

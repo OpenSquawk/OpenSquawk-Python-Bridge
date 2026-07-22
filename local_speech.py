@@ -11,7 +11,9 @@ import socket
 import subprocess
 import sys
 import threading
+import urllib.request
 import wave
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -38,6 +40,29 @@ def ensure_dependencies():
     """Install optional local speech dependencies into the current venv."""
     if not _deps_present():
         _pip_install(_REQUIRED_PKGS)
+
+
+_PIPER_VOICE_NAME = "en_US-ryan-medium"
+_PIPER_VOICE_BASE_URL = (
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
+    "en/en_US/ryan/medium"
+)
+
+
+def _download(url: str, destination: Path):
+    urllib.request.urlretrieve(url, destination)
+
+
+def ensure_piper_voice(models_dir: str | Path) -> Path:
+    """Download the bundled Piper voice and its config only when absent."""
+    voice_dir = Path(models_dir) / "piper"
+    voice_path = voice_dir / f"{_PIPER_VOICE_NAME}.onnx"
+    config_path = voice_dir / f"{_PIPER_VOICE_NAME}.onnx.json"
+    voice_dir.mkdir(parents=True, exist_ok=True)
+    for path in (voice_path, config_path):
+        if not path.exists():
+            _download(f"{_PIPER_VOICE_BASE_URL}/{path.name}", path)
+    return voice_path
 
 # Mirror the values of OpenSquawk/shared/utils/radioSpeech.ts's
 # DEFAULT_AIRLINE_TELEPHONY.

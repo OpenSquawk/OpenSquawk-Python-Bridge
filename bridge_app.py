@@ -40,6 +40,7 @@ PM_URL = f"{BASE_URL}/pm"  # the push-to-talk / recording app
 
 CONFIG_DIR = Path.home() / ".opensquawk-bridge"
 CONFIG_FILE = CONFIG_DIR / "config.json"
+MODELS_DIR = CONFIG_DIR / "models"
 AUTOSTART_APP_ID = "de.opensquawk.bridge"
 
 POLL_INTERVAL = 2.0     # seconds, GET /me while waiting / linked
@@ -116,6 +117,15 @@ class BridgeApi:
         # push-to-talk trigger (see the push-to-talk section). Migrate the old
         # single-key `ptt_key` string into the new {"type":"keys",...} shape.
         cfg = self._read_config()
+        self._local_speech = {
+            "enabled": bool(cfg.get("local_speech_enabled", False)),
+            "ready": False,
+            "installing": False,
+            "error": None,
+            "port": 0,
+            "model": "base.en",
+        }
+        self._local_server = None
         trigger = cfg.get("ptt_trigger")
         if not isinstance(trigger, dict):
             legacy = cfg.get("ptt_key")
@@ -189,6 +199,9 @@ class BridgeApi:
         self._start_joystick_listener()
         self._start_mouse_listener()
 
+        if self._local_speech["enabled"]:
+            threading.Thread(target=self._start_local_speech, daemon=True).start()
+
         # fire any "app_start"-bound chains once the UI/input is up.
         _app_start = threading.Timer(1.5, lambda: self._fire_hook("app_start"))
         _app_start.daemon = True
@@ -245,6 +258,49 @@ class BridgeApi:
             CONFIG_FILE.write_text(json.dumps(data, indent=2))
         except Exception as exc:  # pragma: no cover - best effort
             print(f"[config] could not save: {exc}")
+
+    # ---- local speech ------------------------------------------------------
+
+    def set_local_speech(self, enabled: bool) -> dict:
+        """Enable or disable on-demand local TTS/STT for the radio page."""
+        enabled = bool(enabled)
+        self._local_speech["enabled"] = enabled
+        self._update_config(local_speech_enabled=enabled)
+        if enabled:
+            threading.Thread(target=self._start_local_speech, daemon=True).start()
+        else:
+            self._stop_local_speech()
+        return {"ok": True}
+
+    def _start_local_speech(self) -> None:
+        import local_speech
+
+        self._local_speech.update(installing=True, error=None)
+        try:
+            local_speech.ensure_dependencies()
+            engines = local_speech.SpeechEngines(
+                model_dir=str(MODELS_DIR),
+                model_name=self._local_speech["model"],
+                piper_voice_path=str(MODELS_DIR / "piper" / "en_US-ryan-medium.onnx"),
+            )
+            local_speech.ensure_piper_voice(MODELS_DIR)
+            engines.load()
+            server = local_speech.LocalSpeechServer(
+                engines=engines,
+                allow_origin=BASE_URL,
+                model_name=self._local_speech["model"],
+            )
+            server.start()
+            self._local_server = server
+            self._local_speech.update(ready=True, installing=False, port=server.port)
+        except Exception as exc:  # noqa: BLE001 - expose setup failures in the UI
+            self._local_speech.update(ready=False, installing=False, error=str(exc))
+
+    def _stop_local_speech(self) -> None:
+        if self._local_server:
+            self._local_server.stop()
+            self._local_server = None
+        self._local_speech.update(ready=False, installing=False, port=0)
 
     # ---- OS autostart ------------------------------------------------------
 
@@ -1371,6 +1427,7 @@ class BridgeApi:
                 "actions_backend_ok": self._actions_backend is not None,
                 "actions_hook_labels": self.HOOK_LABELS,
                 "autostart_enabled": self._autostart_enabled(),
+                "local_speech": dict(self._local_speech),
             }
 
 

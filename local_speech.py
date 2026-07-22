@@ -14,6 +14,60 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 DEFAULT_PORT_START = 8765
 DEFAULT_PORT_END = 8770
 
+# Mirror the values of OpenSquawk/shared/utils/radioSpeech.ts's
+# DEFAULT_AIRLINE_TELEPHONY.
+_AIRLINE_TELEPHONY = [
+    "Lufthansa",
+    "Eurowings",
+    "Turkish",
+    "JetBlue",
+    "Norwegian",
+    "Swiss",
+    "Speedbird",
+    "Air France",
+    "KLM",
+    "American",
+    "United",
+    "Delta",
+    "Ryanair",
+    "Easy",
+]
+
+_STT_BIAS = " ".join(
+    [
+        "Air traffic control radio communication in ICAO English phraseology.",
+        "Phonetic alphabet: Alfa Bravo Charlie Delta Echo Foxtrot Golf Hotel India "
+        "Juliett Kilo Lima Mike November Oscar Papa Quebec Romeo Sierra Tango "
+        "Uniform Victor Whiskey X-ray Yankee Zulu.",
+        "Numbers: zero one two three four five six seven eight niner, also tree fife "
+        "niner, decimal.",
+        f"Airline callsigns: {', '.join(_AIRLINE_TELEPHONY)}.",
+        "Common phrases: ready for pushback, request taxi, holding point, line up "
+        "and wait, cleared for takeoff, contact tower, QNH, flight level, squawk, "
+        "wilco, roger, affirm, negative, say again, runway, heading, descend, climb, "
+        "maintain.",
+    ]
+)
+
+
+def build_stt_prompt(expected: dict | None) -> str:
+    """Build a Whisper bias prompt, preserving expected values at the end."""
+    segments = [_STT_BIAS]
+    if expected:
+        phrase = (expected.get("phrase") or "").strip()
+        if phrase:
+            segments.append(f"Expected pilot transmission: {phrase}.")
+        tokens = []
+        seen = set()
+        for token in expected.get("tokens") or []:
+            token = str(token).strip()
+            if token and token not in seen:
+                seen.add(token)
+                tokens.append(token)
+        if tokens:
+            segments.append(f"Expected values: {', '.join(tokens)}.")
+    return " ".join(segments)
+
 
 def pick_port(start: int = DEFAULT_PORT_START, end: int = DEFAULT_PORT_END) -> int:
     """Return the first bindable loopback port in the inclusive range."""

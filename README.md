@@ -5,8 +5,28 @@ OpenSquawk Bridge connects your flight simulator to
 streams simulator telemetry to OpenSquawk, and opens the push-to-talk radio page
 for ATC.
 
-You can run the app directly from source. For regular users, build a clickable
-Windows `.exe` or macOS `.app`.
+You can run the app directly from source. For regular users, there is a
+self-updating installer that always fetches the latest version from GitHub.
+
+## Install (macOS)
+
+Download one file, open it, done — the app installs and updates itself.
+
+1. Download **OpenSquawk-Bridge-macOS.dmg**.
+2. Open the `.dmg` and drag **OpenSquawk Bridge** to `Applications`.
+3. The first launch is blocked because the app is unsigned: **right-click the
+   app → `Open`**, then confirm `Open` again. (Only needed once.)
+
+On first launch the app sets itself up — this takes about a minute (it downloads
+a private Python runtime and the app's dependencies). After that it starts
+quickly. On every launch it checks GitHub and updates itself automatically, so
+you always run the latest version without reinstalling.
+
+Everything the installer downloads lives under
+`~/Library/Application Support/OpenSquawk Bridge/`. Delete that folder to reset
+the install; delete `~/.opensquawk-bridge/` to forget your account link.
+
+> Windows and Linux installers use the same approach and are coming next.
 
 ## Features
 
@@ -93,7 +113,29 @@ For local backend testing, override the target URL:
 OPENSQUAWK_BASE_URL=http://localhost:3000 python bridge_app.py
 ```
 
-## Build A Clickable App
+## Build The macOS Installer (maintainers)
+
+The macOS download is a small **thin launcher** — an unsigned `.app` that
+carries no Python and no app code. It downloads the latest source from GitHub at
+runtime, builds an isolated environment with [uv](https://astral.sh/uv), and
+runs the app (see `installer/mac/bootstrap.py`).
+
+Because of this, you do **not** rebuild the launcher for every app change — just
+push to `main` (or publish a GitHub Release) and users get it on their next
+launch. Rebuild the launcher only when the launcher/bootstrap itself changes:
+
+```bash
+python3 installer/build_launcher.py
+```
+
+This produces `dist/OpenSquawk-Bridge-macOS.dmg` (the file to link on the
+website) and `dist/OpenSquawk Bridge.app`. Runs on macOS only; no signing.
+
+The update channel is: latest GitHub **Release** if any exists, otherwise the
+tip of `main`. So publishing a release (`gh release create vX.Y.Z --notes …`)
+gates updates once you want that; until then every push to `main` ships.
+
+## Build A Standalone App (PyInstaller)
 
 The build is created for the operating system you run it on. Build the Windows
 `.exe` on Windows and the macOS `.app` on macOS.
@@ -177,9 +219,10 @@ actions.py             Flight-action chains, triggers, and execution
 web/index.html         UI
 web/style.css          Styling
 web/app.js             Frontend logic
-build.py               Build script for .exe/.app/Linux bundle
+build.py               PyInstaller build for standalone .exe/.app/Linux bundle
 build.bat              Windows build
 build.sh               macOS/Linux build
+installer/             Self-updating thin launcher (macOS installer)
 tests/                 Tests
 ```
 

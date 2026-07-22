@@ -13,6 +13,7 @@ import os
 import plistlib
 import secrets
 import shlex
+import shutil
 import subprocess
 import sys
 import threading
@@ -42,6 +43,7 @@ CONFIG_DIR = Path.home() / ".opensquawk-bridge"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 MODELS_DIR = CONFIG_DIR / "models"
 AUTOSTART_APP_ID = "de.opensquawk.bridge"
+LOCAL_SPEECH_MIN_FREE_BYTES = 1 * 1024**3
 
 POLL_INTERVAL = 2.0     # seconds, GET /me while waiting / linked
 STREAM_INTERVAL = 1.0   # seconds, POST /data while sim active
@@ -87,6 +89,14 @@ def _generate_token() -> str:
     return "".join(secrets.choice(TOKEN_ALPHABET) for _ in range(TOKEN_LENGTH))
 
 
+def _local_speech_has_space() -> bool:
+    """Whether the first-run local speech download has a safe disk budget."""
+    try:
+        return shutil.disk_usage(CONFIG_DIR.parent).free >= LOCAL_SPEECH_MIN_FREE_BYTES
+    except OSError:
+        return False
+
+
 def _make_qr_svg(data: str) -> str | None:
     """Render `data` as a self-contained SVG QR code (no Pillow needed)."""
     try:
@@ -117,8 +127,15 @@ class BridgeApi:
         # push-to-talk trigger (see the push-to-talk section). Migrate the old
         # single-key `ptt_key` string into the new {"type":"keys",...} shape.
         cfg = self._read_config()
+        local_speech_configured = "local_speech_enabled" in cfg
+        local_speech_enabled = bool(cfg.get("local_speech_enabled", False))
+        if not local_speech_configured and _local_speech_has_space():
+            # First run: install in the background after the UI is responsive.
+            # A persisted explicit user choice always wins on later launches.
+            local_speech_enabled = True
+            self._update_config(local_speech_enabled=True)
         self._local_speech = {
-            "enabled": bool(cfg.get("local_speech_enabled", False)),
+            "enabled": local_speech_enabled,
             "ready": False,
             "installing": False,
             "error": None,

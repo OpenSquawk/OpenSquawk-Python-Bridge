@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 import io
 import socket
+import subprocess
+import sys
 import threading
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -15,6 +17,27 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DEFAULT_PORT_START = 8765
 DEFAULT_PORT_END = 8770
+_REQUIRED_PKGS = ["faster-whisper", "piper-tts"]
+
+
+def _deps_present() -> bool:
+    try:
+        import faster_whisper  # noqa: F401
+        import piper  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+def _pip_install(packages: list[str]):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", *packages])
+
+
+def ensure_dependencies():
+    """Install optional local speech dependencies into the current venv."""
+    if not _deps_present():
+        _pip_install(_REQUIRED_PKGS)
 
 # Mirror the values of OpenSquawk/shared/utils/radioSpeech.ts's
 # DEFAULT_AIRLINE_TELEPHONY.

@@ -44,7 +44,7 @@ BUILD = ROOT / "build"
 DIST = ROOT / "dist"
 
 APP_NAME = "OpenSquawk Bridge"
-LAUNCHER_VERSION = "1.0.0"  # bump only when the launcher/bootstrap changes
+LAUNCHER_VERSION = "1.0.1"  # bump only when the launcher/bootstrap changes
 
 
 def run(cmd: list, **kw) -> None:

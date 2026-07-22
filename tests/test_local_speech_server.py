@@ -78,3 +78,27 @@ def test_ptt_returns_transcription():
         assert body == {"success": True, "transcription": "ready for taxi"}
     finally:
         server.stop()
+
+
+def test_say_returns_audio_base64():
+    server = LocalSpeechServer(engines=FakeEngines())
+    server.start()
+    try:
+        status, body = _post(
+            server.port,
+            "/api/atc/say",
+            {
+                "text": "cleared for takeoff",
+                "voice": "verse",
+                "speed": 1.0,
+                "level": 4,
+                "preNormalized": True,
+            },
+        )
+        assert status == 200
+        assert body["success"] is True
+        assert body["audio"]["mime"] == "audio/wav"
+        assert body["audio"]["ext"] == "wav"
+        assert body["audio"]["base64"]
+    finally:
+        server.stop()

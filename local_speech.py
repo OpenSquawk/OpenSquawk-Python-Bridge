@@ -168,6 +168,32 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._send_json(200, {"success": True, "transcription": text})
 
+    def _handle_say(self, body: dict, engines):
+        import base64
+
+        text = (body.get("text") or "").strip()
+        if not text:
+            self._send_json(400, {"success": False, "error": "text required"})
+            return
+        voice = (body.get("voice") or "").strip() or None
+        speed = float(body.get("speed") or 1.0)
+        speed = max(0.5, min(2.0, speed))
+        wav_bytes, mime, ext = engines.synthesize(text, voice, speed)
+        self._send_json(
+            200,
+            {
+                "success": True,
+                "text": text,
+                "audio": {
+                    "mime": mime,
+                    "base64": base64.b64encode(wav_bytes).decode(),
+                    "size": len(wav_bytes),
+                    "ext": ext,
+                },
+                "meta": {"ttsProvider": "piper-local"},
+            },
+        )
+
 
 class LocalSpeechServer:
     """Loopback-only local speech HTTP server, running on a daemon thread."""

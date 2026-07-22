@@ -6,8 +6,10 @@ optional engines lazily loaded, so the Bridge itself starts without them.
 from __future__ import annotations
 
 import json
+import io
 import socket
 import threading
+import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -223,3 +225,82 @@ class LocalSpeechServer:
             self._httpd.shutdown()
             self._httpd.server_close()
             self._httpd = None
+
+
+class SpeechEngines:
+    """Lazily load faster-whisper and Piper behind the server's stable API."""
+
+    def __init__(
+        self,
+        model_dir: str,
+        model_name: str = "base.en",
+        piper_voice_path: str | None = None,
+    ):
+        self.model_dir = model_dir
+        self.model_name = model_name
+        self.piper_voice_path = piper_voice_path
+        self._whisper = None
+        self._piper = None
+        self.ready = False
+
+    def _import_whisper(self):
+        from faster_whisper import WhisperModel
+
+        return WhisperModel
+
+    def _import_piper(self):
+        from piper import PiperVoice
+
+        return PiperVoice
+
+    def load(self):
+        try:
+            whisper_model = self._import_whisper()
+        except ImportError as error:
+            raise RuntimeError(f"faster-whisper not installed: {error}") from error
+        try:
+            piper_voice = self._import_piper()
+        except ImportError as error:
+            raise RuntimeError(f"piper-tts not installed: {error}") from error
+
+        self._whisper = whisper_model(
+            self.model_name,
+            download_root=self.model_dir,
+            device="auto",
+            compute_type="int8",
+        )
+        self._piper = piper_voice.load(self.piper_voice_path)
+        self.ready = True
+
+    def transcribe(self, wav_bytes: bytes, prompt: str, fmt: str = "wav") -> str:
+        del fmt  # faster-whisper detects the container from the byte stream.
+        segments, _ = self._whisper.transcribe(
+            io.BytesIO(wav_bytes),
+            language="en",
+            temperature=0,
+            initial_prompt=prompt,
+        )
+        return " ".join(segment.text for segment in segments)
+
+    def synthesize(self, text: str, voice: str | None, speed: float):
+        del voice  # The MVP ships one selected local Piper voice.
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wav_file:
+            # piper-tts releases expose speed through SynthesisConfig rather
+            # than as a synthesize() keyword argument.
+            try:
+                from piper.config import SynthesisConfig
+
+                self._piper.synthesize(
+                    text,
+                    wav_file,
+                    syn_config=SynthesisConfig(length_scale=1.0 / max(0.1, speed)),
+                )
+            except ImportError:
+                # Compatibility with older Piper releases.
+                self._piper.synthesize(
+                    text,
+                    wav_file,
+                    length_scale=1.0 / max(0.1, speed),
+                )
+        return buffer.getvalue(), "audio/wav", "wav"

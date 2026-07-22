@@ -126,6 +126,48 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._send_json(404, {"ok": False, "error": "not found"})
 
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(length) if length else b""
+        try:
+            body = json.loads(raw or b"{}")
+        except json.JSONDecodeError:
+            self._send_json(400, {"success": False, "error": "bad json"})
+            return
+
+        engines = self.server_ref.engines
+        if not engines or not engines.ready:
+            self._send_json(503, {"success": False, "error": "engines not ready"})
+            return
+
+        if self.path == "/api/atc/ptt":
+            self._handle_ptt(body, engines)
+            return
+        if self.path == "/api/atc/say":
+            self._handle_say(body, engines)
+            return
+        self._send_json(404, {"success": False, "error": "not found"})
+
+    def _handle_ptt(self, body: dict, engines):
+        import base64
+
+        audio_b64 = body.get("audio") or ""
+        if not audio_b64:
+            self._send_json(400, {"success": False, "error": "audio required"})
+            return
+        try:
+            wav = base64.b64decode(audio_b64, validate=True)
+        except Exception:
+            self._send_json(400, {"success": False, "error": "bad base64"})
+            return
+        prompt = build_stt_prompt(body.get("expected"))
+        fmt = body.get("format") or "wav"
+        text = engines.transcribe(wav, prompt, fmt).strip()
+        if not text:
+            self._send_json(400, {"success": False, "error": "no speech detected"})
+            return
+        self._send_json(200, {"success": True, "transcription": text})
+
 
 class LocalSpeechServer:
     """Loopback-only local speech HTTP server, running on a daemon thread."""

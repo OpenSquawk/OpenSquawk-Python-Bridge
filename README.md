@@ -26,7 +26,34 @@ Everything the installer downloads lives under
 `~/Library/Application Support/OpenSquawk Bridge/`. Delete that folder to reset
 the install; delete `~/.opensquawk-bridge/` to forget your account link.
 
-> Windows and Linux installers use the same approach and are coming next.
+## Install (Linux)
+
+Same idea: one self-updating file, no `apt install` needed.
+
+1. Download **OpenSquawk-Bridge-linux.sh**.
+2. Make it executable and run it:
+
+```bash
+chmod +x OpenSquawk-Bridge-linux.sh
+./OpenSquawk-Bridge-linux.sh
+```
+
+The first launch sets things up (downloads a private Python runtime, the app's
+dependencies, and a self-contained Qt webview backend — about a minute and a bit
+more download than macOS). It also adds an **OpenSquawk Bridge** entry to your
+application menu, so afterwards you can start it like any other app. Every launch
+updates itself from GitHub automatically.
+
+Installed files live under `~/.local/share/OpenSquawk Bridge/`. Delete that
+folder to reset the install; delete `~/.opensquawk-bridge/` to forget your
+account link.
+
+Qt (via PySide6) needs a graphical desktop; it works out of the box on standard
+X11/Wayland desktops. Very minimal installs may still miss common system
+libraries (e.g. `libnss3`, `libxkbcommon`) — install those from your distro if
+the app fails to open a window.
+
+> A Windows installer using the same approach is coming next.
 
 ## Features
 
@@ -125,11 +152,19 @@ push to `main` (or publish a GitHub Release) and users get it on their next
 launch. Rebuild the launcher only when the launcher/bootstrap itself changes:
 
 ```bash
-python3 installer/build_launcher.py
+python3 installer/build_launcher.py           # everything this host can build
+python3 installer/build_launcher.py --linux   # only the Linux .sh
+python3 installer/build_launcher.py --mac      # only the macOS .app + .dmg
 ```
 
-This produces `dist/OpenSquawk-Bridge-macOS.dmg` (the file to link on the
-website) and `dist/OpenSquawk Bridge.app`. Runs on macOS only; no signing.
+Outputs in `dist/`:
+
+- `OpenSquawk-Bridge-macOS.dmg` + `OpenSquawk Bridge.app` — macOS only (needs
+  `sips`/`iconutil`/`hdiutil`).
+- `OpenSquawk-Bridge-linux.sh` — a single self-updating file; plain text
+  assembly, so it builds on any host. `bootstrap.py` is embedded into it.
+
+Link the `.dmg` / `.sh` on the website. No signing.
 
 The update channel is: latest GitHub **Release** if any exists, otherwise the
 tip of `main`. So publishing a release (`gh release create vX.Y.Z --notes …`)

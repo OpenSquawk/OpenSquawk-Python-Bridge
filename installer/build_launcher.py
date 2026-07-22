@@ -1,30 +1,40 @@
 #!/usr/bin/env python3
-"""Assemble the macOS thin launcher — "OpenSquawk Bridge.app" — and a .dmg.
+"""Assemble the OpenSquawk Bridge thin launchers (macOS + Linux).
 
-    python installer/build_launcher.py
+    python installer/build_launcher.py            # everything this host can build
+    python installer/build_launcher.py --linux    # only the Linux .sh
+    python installer/build_launcher.py --mac       # only the macOS .app + .dmg
 
-The launcher carries no Python and no app code; it downloads the latest source
-from GitHub at runtime (see installer/mac/bootstrap.py). So this only needs to
-run again when the *launcher itself* changes — not for every app update.
+The launchers carry no Python and no app code; they download the latest source
+from GitHub at runtime (see installer/bootstrap.py). So this only needs to run
+again when a *launcher itself* changes — not for every app update.
 
 Output (in ./dist):
-  OpenSquawk Bridge.app        the launcher bundle
-  OpenSquawk-Bridge-macOS.dmg  the single file to publish / link on the website
+  OpenSquawk Bridge.app          macOS launcher bundle          (macOS host only)
+  OpenSquawk-Bridge-macOS.dmg    macOS single file to publish   (macOS host only)
+  OpenSquawk-Bridge-linux.sh     Linux single file to publish   (any host)
 
-This must run on macOS (uses sips / iconutil / hdiutil). No signing is done.
+The macOS artifacts need sips / iconutil / hdiutil, so they build on macOS only.
+The Linux artifact is plain text assembly and builds on any host. Windows uses a
+separate script (installer/build_launcher_windows.py). Nothing is signed.
 """
 
 from __future__ import annotations
 
+import argparse
 import os
 import platform
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-MAC = ROOT / "installer" / "mac"
+INSTALLER = ROOT / "installer"
+MAC = INSTALLER / "mac"
+LINUX = INSTALLER / "linux"
+BOOTSTRAP = INSTALLER / "bootstrap.py"
 ICON_PNG = ROOT / "web" / "assets" / "icon.png"
 BUILD = ROOT / "build"
 DIST = ROOT / "dist"
@@ -37,6 +47,28 @@ def run(cmd: list, **kw) -> None:
     print("\033[36m>\033[0m", " ".join(str(c) for c in cmd))
     subprocess.check_call(cmd, **kw)
 
+
+# --------------------------------------------------------------------------- #
+# Linux (any host)
+# --------------------------------------------------------------------------- #
+
+def build_linux() -> Path:
+    template = (LINUX / "launcher-template.sh").read_text()
+    bootstrap = BOOTSTRAP.read_text()
+    if "OPENSQUAWK_BOOTSTRAP_EOF" in bootstrap:
+        raise RuntimeError("bootstrap.py collides with the heredoc marker")
+    script = template.replace("@BOOTSTRAP@", bootstrap)
+
+    DIST.mkdir(parents=True, exist_ok=True)
+    out = DIST / "OpenSquawk-Bridge-linux.sh"
+    out.write_text(script)
+    out.chmod(out.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# macOS (Darwin host only)
+# --------------------------------------------------------------------------- #
 
 def make_icns() -> Path:
     iconset = BUILD / "launcher.iconset"
@@ -53,7 +85,7 @@ def make_icns() -> Path:
     return icns
 
 
-def build_app(icns: Path) -> Path:
+def build_mac_app(icns: Path) -> Path:
     app = DIST / f"{APP_NAME}.app"
     if app.exists():
         shutil.rmtree(app)
@@ -63,63 +95,78 @@ def build_app(icns: Path) -> Path:
     macos.mkdir(parents=True)
     resources.mkdir(parents=True)
 
-    # Bundle executable (bash launcher).
     launcher = macos / "launcher"
     shutil.copy2(MAC / "launcher.sh", launcher)
     launcher.chmod(0o755)
 
-    # Runtime scripts + icon.
-    shutil.copy2(MAC / "bootstrap.py", resources / "bootstrap.py")
+    shutil.copy2(BOOTSTRAP, resources / "bootstrap.py")
     shutil.copy2(icns, resources / "icon.icns")
 
-    # Info.plist from template.
     plist = (MAC / "Info.plist.in").read_text().replace(
         "@LAUNCHER_VERSION@", LAUNCHER_VERSION)
     (contents / "Info.plist").write_text(plist)
-
     return app
 
 
-def build_dmg(app: Path) -> Path:
+def build_mac_dmg(app: Path) -> Path:
     staging = BUILD / "dmg"
     if staging.exists():
         shutil.rmtree(staging)
     staging.mkdir(parents=True)
     shutil.copytree(app, staging / app.name)
-    # Drag-to-install target.
     os.symlink("/Applications", staging / "Applications")
 
     dmg = DIST / "OpenSquawk-Bridge-macOS.dmg"
     if dmg.exists():
         dmg.unlink()
-    run(["hdiutil", "create",
-         "-volname", APP_NAME,
-         "-srcfolder", str(staging),
-         "-ov", "-format", "UDZO",
-         str(dmg)])
+    run(["hdiutil", "create", "-volname", APP_NAME,
+         "-srcfolder", str(staging), "-ov", "-format", "UDZO", str(dmg)])
     return dmg
 
 
-def main() -> int:
+def build_mac() -> list[Path]:
     if platform.system() != "Darwin":
-        print("error: the macOS launcher can only be built on macOS",
-              file=sys.stderr)
-        return 1
+        raise SystemExit("error: the macOS launcher can only be built on macOS")
+    BUILD.mkdir(parents=True, exist_ok=True)
+    DIST.mkdir(parents=True, exist_ok=True)
+    icns = make_icns()
+    app = build_mac_app(icns)
+    dmg = build_mac_dmg(app)
+    return [dmg, app]
+
+
+# --------------------------------------------------------------------------- #
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--mac", action="store_true", help="build only macOS")
+    ap.add_argument("--linux", action="store_true", help="build only Linux")
+    args = ap.parse_args()
+    want_mac = args.mac or not (args.mac or args.linux)
+    want_linux = args.linux or not (args.mac or args.linux)
+
     if not ICON_PNG.exists():
         print(f"error: missing icon at {ICON_PNG}", file=sys.stderr)
         return 1
 
-    BUILD.mkdir(parents=True, exist_ok=True)
-    DIST.mkdir(parents=True, exist_ok=True)
+    outputs: list[Path] = []
+    if want_linux:
+        outputs.append(build_linux())
+    if want_mac:
+        if platform.system() == "Darwin":
+            outputs += build_mac()
+        elif args.mac:
+            print("error: the macOS launcher can only be built on macOS",
+                  file=sys.stderr)
+            return 1
+        else:
+            print("• skipping macOS artifacts (not on macOS)")
 
-    icns = make_icns()
-    app = build_app(icns)
-    dmg = build_dmg(app)
-
-    print("\n\033[32m✓ Launcher built.\033[0m Look in the 'dist' folder:")
-    print(f"  {dmg.relative_to(ROOT)}   — publish this / link it on the website")
-    print(f"  {app.relative_to(ROOT)}   — the launcher bundle itself")
-    print("\n  Unsigned: users open it the first time with right-click → Open.")
+    print("\n\033[32m✓ Done.\033[0m Built:")
+    for p in outputs:
+        print(f"  {p.relative_to(ROOT)}")
+    print("\n  Unsigned. On macOS: right-click → Open the first time.")
+    print("  On Linux: chmod +x the .sh and run it.")
     return 0
 
 

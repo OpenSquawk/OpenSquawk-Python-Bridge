@@ -1,5 +1,10 @@
-*.icns filter=lfs diff=lfs merge=lfs -text
-*.ico filter=lfs diff=lfs merge=lfs -text
-*.png filter=lfs diff=lfs merge=lfs -text
-*.jpg filter=lfs diff=lfs merge=lfs -text
-*.jpeg filter=lfs diff=lfs merge=lfs -text
+# Images are stored as normal Git blobs (NOT Git LFS). The self-updating
+# installer downloads GitHub source tarballs, and those do not resolve LFS
+# pointers — an LFS-tracked image ships as its ~130-byte pointer text instead of
+# the real file, which breaks the app UI (and crashes the macOS webview icon).
+# Keeping them as plain binaries guarantees tarballs contain the real images.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.icns binary

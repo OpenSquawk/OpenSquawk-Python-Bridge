@@ -301,6 +301,11 @@ class SpeechEngines:
 
         return PiperVoice
 
+    def _import_piper_config(self):
+        from piper.config import SynthesisConfig
+
+        return SynthesisConfig
+
     def load(self):
         try:
             whisper_model = self._import_whisper()
@@ -334,21 +339,22 @@ class SpeechEngines:
         del voice  # The MVP ships one selected local Piper voice.
         buffer = io.BytesIO()
         with wave.open(buffer, "wb") as wav_file:
-            # piper-tts releases expose speed through SynthesisConfig rather
-            # than as a synthesize() keyword argument.
             try:
-                from piper.config import SynthesisConfig
-
-                self._piper.synthesize(
-                    text,
-                    wav_file,
-                    syn_config=SynthesisConfig(length_scale=1.0 / max(0.1, speed)),
+                synthesis_config = self._import_piper_config()(
+                    length_scale=1.0 / max(0.1, speed)
                 )
             except ImportError:
-                # Compatibility with older Piper releases.
+                # Older Piper releases accepted the WAV writer directly.
                 self._piper.synthesize(
                     text,
                     wav_file,
                     length_scale=1.0 / max(0.1, speed),
                 )
+            else:
+                # piper-tts >= 1.5 returns audio chunks from synthesize() and
+                # provides this explicit helper for writing a WAV file.
+                if hasattr(self._piper, "synthesize_wav"):
+                    self._piper.synthesize_wav(text, wav_file, syn_config=synthesis_config)
+                else:
+                    self._piper.synthesize(text, wav_file, syn_config=synthesis_config)
         return buffer.getvalue(), "audio/wav", "wav"

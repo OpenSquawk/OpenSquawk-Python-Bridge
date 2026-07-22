@@ -13,9 +13,15 @@ self-updating installer that always fetches the latest version from GitHub.
 Download one file, open it, done — the app installs and updates itself.
 
 1. Download **OpenSquawk-Bridge-macOS.dmg**.
-2. Open the `.dmg` and drag **OpenSquawk Bridge** to `Applications`.
-3. The first launch is blocked because the app is unsigned: **right-click the
-   app → `Open`**, then confirm `Open` again. (Only needed once.)
+2. Open the `.dmg` and drag **OpenSquawk Bridge** to `Applications`. Then eject
+   the disk image and launch the app **from `Applications`** (not from inside
+   the `.dmg`).
+3. The first launch is blocked because the app is unsigned. On recent macOS
+   (Sonoma/Sequoia) you'll see *"Apple could not verify…"* with only a **Done**
+   button. Click Done, then open **System Settings → Privacy & Security**, scroll
+   to the bottom, and click **Open Anyway** next to *OpenSquawk Bridge*; confirm
+   with your password or Touch ID. (Only needed once. On older macOS you can
+   instead right-click the app → **Open**.)
 
 On first launch the app sets itself up — this takes about a minute (it downloads
 a private Python runtime and the app's dependencies). After that it starts
@@ -236,8 +242,9 @@ After the build, the output is in `dist/`:
 The builds are currently not signed:
 
 - Windows may show SmartScreen. Choose `More info`, then `Run anyway`.
-- macOS may block the first launch. Right-click the `.app`, choose `Open`, then
-  confirm `Open` again.
+- macOS may block the first launch. On recent macOS, open `System Settings →
+  Privacy & Security` and click `Open Anyway`; on older macOS, right-click the
+  `.app` and choose `Open`.
 
 ## App Setup
 

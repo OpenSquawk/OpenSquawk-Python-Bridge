@@ -29,6 +29,7 @@ import tarfile
 import tempfile
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 APP_NAME = "OpenSquawk Bridge"
@@ -72,6 +73,7 @@ else:
     VENV_PY = VENV / "bin" / "python"
     VENV_PYW = VENV_PY
 STATE_FILE = SUPPORT / "state.json"
+VERSION_FILE_NAME = ".opensquawk-version.json"
 
 
 def log(msg: str) -> None:
@@ -113,8 +115,19 @@ def _get_json(url: str) -> dict | None:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def resolve_latest() -> tuple[str, str] | None:
-    """Return (ref_id, tarball_url) for the newest source, or None if offline.
+def _commit_info(ref: str) -> dict[str, str | None]:
+    """Resolve a GitHub ref to the revision and its commit timestamp."""
+    commit = _get_json(f"https://api.github.com/repos/{REPO}/commits/{ref}")
+    details = commit.get("commit") if commit else {}
+    committer = details.get("committer") if isinstance(details, dict) else {}
+    return {
+        "commit": commit.get("sha") if commit else None,
+        "committed_at": committer.get("date") if isinstance(committer, dict) else None,
+    }
+
+
+def resolve_latest() -> tuple[str, str, dict[str, str | None]] | None:
+    """Return source ref, tarball URL and revision metadata, or None if offline.
 
     Prefers the latest published GitHub Release; falls back to the tip of the
     default branch so the launcher works before any release exists.
@@ -123,8 +136,11 @@ def resolve_latest() -> tuple[str, str] | None:
         rel = _get_json(f"https://api.github.com/repos/{REPO}/releases/latest")
         if rel and rel.get("tag_name"):
             tag = rel["tag_name"]
-            return f"release:{tag}", rel.get("tarball_url") or (
-                f"https://api.github.com/repos/{REPO}/tarball/{tag}")
+            return (
+                f"release:{tag}",
+                rel.get("tarball_url") or f"https://api.github.com/repos/{REPO}/tarball/{tag}",
+                _commit_info(tag),
+            )
     except urllib.error.HTTPError as e:
         if e.code != 404:  # 404 just means "no releases yet"
             log(f"release check failed: {e}")
@@ -133,12 +149,10 @@ def resolve_latest() -> tuple[str, str] | None:
         return None  # network problem — signal "no update", keep existing
 
     try:
-        commit = _get_json(
-            f"https://api.github.com/repos/{REPO}/commits/{BRANCH}")
-        sha = commit.get("sha") if commit else None
+        revision = _commit_info(BRANCH)
+        sha = revision.get("commit")
         if sha:
-            return f"branch:{sha}", (
-                f"https://api.github.com/repos/{REPO}/tarball/{sha}")
+            return f"branch:{sha}", f"https://api.github.com/repos/{REPO}/tarball/{sha}", revision
     except Exception as e:
         log(f"branch check failed: {e}")
     return None
@@ -189,7 +203,7 @@ def update_source() -> None:
         notify("No internet connection. Cannot install OpenSquawk Bridge.")
         raise SystemExit("cannot install: no source and no network")
 
-    ref, tarball_url = latest
+    ref, tarball_url, revision = latest
     if ref == installed and SRC.exists():
         log(f"up to date ({ref})")
         return
@@ -201,6 +215,12 @@ def update_source() -> None:
         download(tarball_url, tarball)
         staging = SUPPORT / "src.new"
         extract_source(tarball, staging)
+        (staging / VERSION_FILE_NAME).write_text(json.dumps({
+            "ref": ref,
+            "commit": revision.get("commit"),
+            "committed_at": revision.get("committed_at"),
+            "installed_at": datetime.now(timezone.utc).isoformat(),
+        }, indent=2) + "\n", encoding="utf-8")
         old = SUPPORT / "src.old"
         if old.exists():
             shutil.rmtree(old)

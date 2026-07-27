@@ -1,4 +1,12 @@
-from local_speech import ensure_dependencies, ensure_piper_voice
+import sys
+
+from local_speech import (
+    _PIPER_VOICES,
+    _pip_install,
+    ensure_dependencies,
+    ensure_piper_voice,
+    ensure_piper_voices,
+)
 
 
 def test_ensure_dependencies_skips_when_import_succeeds(monkeypatch):
@@ -17,13 +25,31 @@ def test_ensure_dependencies_installs_when_missing(monkeypatch):
     assert calls and "faster-whisper" in calls[0]
 
 
+def test_pip_install_bootstraps_pip_when_missing(monkeypatch):
+    calls = []
+    monkeypatch.setattr("local_speech._pip_available", lambda: False)
+    monkeypatch.setattr(
+        "local_speech.subprocess.check_call", lambda command: calls.append(command)
+    )
+
+    _pip_install(["faster-whisper"])
+
+    assert calls == [
+        [sys.executable, "-m", "ensurepip", "--upgrade"],
+        [sys.executable, "-m", "pip", "install", "faster-whisper"],
+    ]
+
+
 def test_ensure_piper_voice_skips_download_when_files_exist(tmp_path, monkeypatch):
     voice_dir = tmp_path / "piper"
     voice_dir.mkdir()
-    (voice_dir / "en_US-ryan-medium.onnx").touch()
-    (voice_dir / "en_US-ryan-medium.onnx.json").touch()
+    for voice_name in _PIPER_VOICES.values():
+        (voice_dir / f"{voice_name}.onnx").touch()
+        (voice_dir / f"{voice_name}.onnx.json").touch()
     calls = []
     monkeypatch.setattr("local_speech._download", lambda *args: calls.append(args))
 
+    voices = ensure_piper_voices(tmp_path)
+    assert set(voices) == set(_PIPER_VOICES)
     assert ensure_piper_voice(tmp_path) == voice_dir / "en_US-ryan-medium.onnx"
     assert calls == []

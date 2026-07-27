@@ -24,6 +24,8 @@ from pathlib import Path
 import requests
 import webview
 
+from build_info import get_build_info, refresh_build_info_async
+
 import actions
 
 
@@ -43,7 +45,7 @@ CONFIG_DIR = Path.home() / ".opensquawk-bridge"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 MODELS_DIR = CONFIG_DIR / "models"
 AUTOSTART_APP_ID = "de.opensquawk.bridge"
-LOCAL_SPEECH_MIN_FREE_BYTES = 1 * 1024**3
+LOCAL_SPEECH_MIN_FREE_BYTES = 2 * 1024**3
 
 POLL_INTERVAL = 2.0     # seconds, GET /me while waiting / linked
 STREAM_INTERVAL = 1.0   # seconds, POST /data while sim active
@@ -295,12 +297,12 @@ class BridgeApi:
         self._local_speech.update(installing=True, error=None)
         try:
             local_speech.ensure_dependencies()
+            voice_paths = local_speech.ensure_piper_voices(MODELS_DIR)
             engines = local_speech.SpeechEngines(
                 model_dir=str(MODELS_DIR),
                 model_name=self._local_speech["model"],
-                piper_voice_path=str(MODELS_DIR / "piper" / "en_US-ryan-medium.onnx"),
+                piper_voice_paths={key: str(path) for key, path in voice_paths.items()},
             )
-            local_speech.ensure_piper_voice(MODELS_DIR)
             engines.load()
             server = local_speech.LocalSpeechServer(
                 engines=engines,
@@ -1445,6 +1447,7 @@ class BridgeApi:
                 "actions_hook_labels": self.HOOK_LABELS,
                 "autostart_enabled": self._autostart_enabled(),
                 "local_speech": dict(self._local_speech),
+                "build": get_build_info(),
             }
 
 
@@ -1638,6 +1641,7 @@ def _run() -> None:
         return
 
     api = BridgeApi()
+    refresh_build_info_async()
     index = WEB_DIR / "index.html"
     window = webview.create_window(
         "OpenSquawk Bridge",

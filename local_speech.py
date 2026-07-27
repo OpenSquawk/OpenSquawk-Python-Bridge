@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import io
+import importlib.util
 import socket
 import subprocess
 import sys
@@ -32,7 +33,20 @@ def _deps_present() -> bool:
         return False
 
 
+def _pip_available() -> bool:
+    """Whether the app virtual environment already contains pip."""
+    return importlib.util.find_spec("pip") is not None
+
+
 def _pip_install(packages: list[str]):
+    """Install optional packages, bootstrapping pip in uv-created venvs.
+
+    ``uv venv`` intentionally creates a slim virtual environment without pip
+    unless asked otherwise.  Local speech is installed later, after the
+    launcher has created that environment, so make it self-sufficient here.
+    """
+    if not _pip_available():
+        subprocess.check_call([sys.executable, "-m", "ensurepip", "--upgrade"])
     subprocess.check_call([sys.executable, "-m", "pip", "install", *packages])
 
 
@@ -42,27 +56,67 @@ def ensure_dependencies():
         _pip_install(_REQUIRED_PKGS)
 
 
-_PIPER_VOICE_NAME = "en_US-ryan-medium"
-_PIPER_VOICE_BASE_URL = (
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
-    "en/en_US/ryan/medium"
-)
+# Keep this mapping in lockstep with OpenSquawk's server-side voice registry.
+# The browser sends OpenAI-compatible logical ids; locally they resolve to the
+# same Piper speakers that Speaches uses in production.
+_PIPER_VOICES = {
+    "alloy": "en_US-ryan-medium",
+    "echo": "en_GB-jenny_dioco-medium",
+    "onyx": "en_US-john-medium",
+    "sage": "en_US-hfc_female-medium",
+    "verse": "en_US-lessac-medium",
+    "ash": "en_GB-alan-medium",
+    "ballad": "en_GB-alba-medium",
+    "coral": "en_US-joe-medium",
+    "fable": "en_US-amy-medium",
+    "nova": "en_US-bryce-medium",
+    "shimmer": "en_US-kristin-medium",
+    "atis": "en_US-ljspeech-high",
+}
+_DEFAULT_PIPER_VOICE = "alloy"
+_PIPER_VOICE_ROOT_URL = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en"
 
 
 def _download(url: str, destination: Path):
-    urllib.request.urlretrieve(url, destination)
+    """Download atomically so a cancelled model transfer is retried safely."""
+    temporary = destination.with_name(f"{destination.name}.download")
+    try:
+        urllib.request.urlretrieve(url, temporary)
+        temporary.replace(destination)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _piper_voice_url(voice_name: str, filename: str) -> str:
+    locale, speaker, quality = voice_name.rsplit("-", 2)
+    return (
+        f"{_PIPER_VOICE_ROOT_URL}/{locale}/{speaker}/{quality}/{filename}"
+    )
+
+
+def ensure_piper_voices(models_dir: str | Path) -> dict[str, Path]:
+    """Download every local counterpart to the cloud voice pool once."""
+    voice_dir = Path(models_dir) / "piper"
+    voice_dir.mkdir(parents=True, exist_ok=True)
+    paths: dict[str, Path] = {}
+    for logical_voice, voice_name in _PIPER_VOICES.items():
+        voice_path = voice_dir / f"{voice_name}.onnx"
+        config_path = voice_dir / f"{voice_name}.onnx.json"
+        voice_files = (voice_path, config_path)
+        # A previous version wrote straight to the final filename. If it was
+        # interrupted between the model and config downloads, replace both so
+        # the partial ONNX file cannot be mistaken for a valid model.
+        if not all(path.exists() for path in voice_files):
+            for path in voice_files:
+                _download(_piper_voice_url(voice_name, path.name), path)
+        paths[logical_voice] = voice_path
+    return paths
 
 
 def ensure_piper_voice(models_dir: str | Path) -> Path:
-    """Download the bundled Piper voice and its config only when absent."""
-    voice_dir = Path(models_dir) / "piper"
-    voice_path = voice_dir / f"{_PIPER_VOICE_NAME}.onnx"
-    config_path = voice_dir / f"{_PIPER_VOICE_NAME}.onnx.json"
-    voice_dir.mkdir(parents=True, exist_ok=True)
-    for path in (voice_path, config_path):
-        if not path.exists():
-            _download(f"{_PIPER_VOICE_BASE_URL}/{path.name}", path)
-    return voice_path
+    """Compatibility wrapper for callers that only need the default voice."""
+    return ensure_piper_voices(models_dir)[_DEFAULT_PIPER_VOICE]
 
 # Mirror the values of OpenSquawk/shared/utils/radioSpeech.ts's
 # DEFAULT_AIRLINE_TELEPHONY.
@@ -226,9 +280,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"success": False, "error": "text required"})
             return
         voice = (body.get("voice") or "").strip() or None
+        tag = (body.get("tag") or "").strip() or None
         speed = float(body.get("speed") or 1.0)
         speed = max(0.5, min(2.0, speed))
-        wav_bytes, mime, ext = engines.synthesize(text, voice, speed)
+        wav_bytes, mime, ext = engines.synthesize(text, voice, speed, tag)
         self._send_json(
             200,
             {
@@ -283,12 +338,17 @@ class SpeechEngines:
         model_dir: str,
         model_name: str = "base.en",
         piper_voice_path: str | None = None,
+        piper_voice_paths: dict[str, str] | None = None,
     ):
         self.model_dir = model_dir
         self.model_name = model_name
         self.piper_voice_path = piper_voice_path
+        self.piper_voice_paths = piper_voice_paths or {}
         self._whisper = None
         self._piper = None
+        self._pipers: dict[str, object] = {}
+        self._piper_voice_class = None
+        self._piper_lock = threading.Lock()
         self.ready = False
 
     def _import_whisper(self):
@@ -322,7 +382,12 @@ class SpeechEngines:
             device="auto",
             compute_type="int8",
         )
-        self._piper = piper_voice.load(self.piper_voice_path)
+        self._piper_voice_class = piper_voice
+        default_path = self.piper_voice_paths.get(
+            _DEFAULT_PIPER_VOICE, self.piper_voice_path
+        )
+        self._piper = piper_voice.load(default_path)
+        self._pipers[_DEFAULT_PIPER_VOICE] = self._piper
         self.ready = True
 
     def transcribe(self, wav_bytes: bytes, prompt: str, fmt: str = "wav") -> str:
@@ -335,8 +400,23 @@ class SpeechEngines:
         )
         return " ".join(segment.text for segment in segments)
 
-    def synthesize(self, text: str, voice: str | None, speed: float):
-        del voice  # The MVP ships one selected local Piper voice.
+    def _piper_for(self, voice: str | None, tag: str | None):
+        key = "atis" if (tag or "").lower() == "atis" else (voice or "").lower()
+        if key not in self.piper_voice_paths:
+            key = _DEFAULT_PIPER_VOICE
+        if key in self._pipers:
+            return self._pipers[key]
+        with self._piper_lock:
+            if key not in self._pipers:
+                self._pipers[key] = self._piper_voice_class.load(
+                    self.piper_voice_paths[key]
+                )
+            return self._pipers[key]
+
+    def synthesize(
+        self, text: str, voice: str | None, speed: float, tag: str | None = None
+    ):
+        piper = self._piper_for(voice, tag) if self.piper_voice_paths else self._piper
         buffer = io.BytesIO()
         with wave.open(buffer, "wb") as wav_file:
             try:
@@ -345,7 +425,7 @@ class SpeechEngines:
                 )
             except ImportError:
                 # Older Piper releases accepted the WAV writer directly.
-                self._piper.synthesize(
+                piper.synthesize(
                     text,
                     wav_file,
                     length_scale=1.0 / max(0.1, speed),
@@ -353,8 +433,8 @@ class SpeechEngines:
             else:
                 # piper-tts >= 1.5 returns audio chunks from synthesize() and
                 # provides this explicit helper for writing a WAV file.
-                if hasattr(self._piper, "synthesize_wav"):
-                    self._piper.synthesize_wav(text, wav_file, syn_config=synthesis_config)
+                if hasattr(piper, "synthesize_wav"):
+                    piper.synthesize_wav(text, wav_file, syn_config=synthesis_config)
                 else:
-                    self._piper.synthesize(text, wav_file, syn_config=synthesis_config)
+                    piper.synthesize(text, wav_file, syn_config=synthesis_config)
         return buffer.getvalue(), "audio/wav", "wav"

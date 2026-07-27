@@ -22,7 +22,7 @@ class FakeEngines:
     def transcribe(self, wav_bytes, prompt, fmt="wav"):
         return "ready for taxi"
 
-    def synthesize(self, text, voice, speed):
+    def synthesize(self, text, voice, speed, tag=None):
         return b"RIFFfake", "audio/wav", "wav"
 
 

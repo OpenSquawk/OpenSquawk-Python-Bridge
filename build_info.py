@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 VERSION_FILE = ROOT / ".opensquawk-version.json"
 STATE_FILE = ROOT.parent / "state.json"
-REPO = "OpenSquawk/OpenSquawk-Python-Bridge"
+REPO = "OpenSquawk/OpenSquawk-Bridge"
 _lock = threading.Lock()
 _refresh_started = False
 

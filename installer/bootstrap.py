@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 APP_NAME = "OpenSquawk Bridge"
-REPO = "OpenSquawk/OpenSquawk-Python-Bridge"
+REPO = "OpenSquawk/OpenSquawk-Bridge"
 BRANCH = "main"          # fallback channel when no release is published
 PYTHON = "3.12"          # managed Python used for the app's venv
 

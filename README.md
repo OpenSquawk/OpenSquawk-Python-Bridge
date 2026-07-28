@@ -1,7 +1,7 @@
 # OpenSquawk Bridge
 
 OpenSquawk Bridge connects your flight simulator to
-[opensquawk.de](https://opensquawk.de). The app runs as a small desktop window,
+[app.opensquawk.de](https://app.opensquawk.de). The app runs as a small desktop window,
 streams simulator telemetry to OpenSquawk, and opens the push-to-talk radio page
 for ATC.
 
@@ -155,7 +155,8 @@ pip install -r requirements.txt
 python bridge_app.py
 ```
 
-For local backend testing, override the target URL:
+The Bridge talks to the OpenSquawk app at `https://app.opensquawk.de` by
+default. For local backend testing, override the target URL:
 
 ```bash
 OPENSQUAWK_BASE_URL=http://localhost:3000 python bridge_app.py
@@ -250,7 +251,7 @@ The builds are currently not signed:
 
 1. Start OpenSquawk Bridge.
 2. Click `Open login in browser`.
-3. Sign in on opensquawk.de and link the shown pairing code.
+3. Sign in on app.opensquawk.de and link the shown pairing code.
 4. Return to the app. After linking, the main view appears.
 5. Under `Simulator`, choose the source:
    - Use `Dummy flight` for testing.

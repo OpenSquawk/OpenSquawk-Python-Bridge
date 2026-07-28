@@ -36,7 +36,9 @@ def _resource_dir() -> Path:
         return Path(base)
     return Path(__file__).resolve().parent
 
-BASE_URL = os.environ.get("OPENSQUAWK_BASE_URL", "https://opensquawk.de")
+# The app (pairing, /api/bridge, the radio page) lives on its own origin since
+# the repo split — opensquawk.de is the website and no longer serves /api/bridge.
+BASE_URL = os.environ.get("OPENSQUAWK_BASE_URL", "https://app.opensquawk.de")
 CONNECT_URL = f"{BASE_URL}/bridge/connect"
 API_URL = f"{BASE_URL}/api/bridge"
 PM_URL = f"{BASE_URL}/pm"  # the push-to-talk / recording app
@@ -873,7 +875,7 @@ class BridgeApi:
         return {"ok": True, "url": url}
 
     def open_signup(self) -> dict:
-        """Open opensquawk.de in the browser so the user can create an account."""
+        """Open the OpenSquawk app in the browser so the user can create an account."""
         webbrowser.open(BASE_URL, new=2)
         return {"ok": True, "url": BASE_URL}
 

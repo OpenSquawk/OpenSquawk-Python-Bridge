@@ -18,6 +18,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import webbrowser
 from pathlib import Path
 
@@ -38,7 +39,14 @@ def _resource_dir() -> Path:
 
 # The app (pairing, /api/bridge, the radio page) lives on its own origin since
 # the repo split — opensquawk.de is the website and no longer serves /api/bridge.
-BASE_URL = os.environ.get("OPENSQUAWK_BASE_URL", "https://app.opensquawk.de")
+DEFAULT_BASE_URL = "https://app.opensquawk.de"
+# Hosts we run ourselves. Anything else is a self-hosted OpenSquawk instance,
+# which is the only case where the user has to bring their own OpenAI key —
+# on our hosts the speech/LLM calls are paid for and made server-side.
+OFFICIAL_HOSTS = {"app.opensquawk.de", "opensquawk.de"}
+BASE_URL_ENV = os.environ.get("OPENSQUAWK_BASE_URL")
+
+BASE_URL = DEFAULT_BASE_URL
 CONNECT_URL = f"{BASE_URL}/bridge/connect"
 API_URL = f"{BASE_URL}/api/bridge"
 PM_URL = f"{BASE_URL}/pm"  # the push-to-talk / recording app
@@ -93,6 +101,43 @@ def _generate_token() -> str:
     return "".join(secrets.choice(TOKEN_ALPHABET) for _ in range(TOKEN_LENGTH))
 
 
+def _normalize_base_url(url: object) -> str:
+    """Clean a user-typed server URL. Empty input falls back to our own host."""
+    text = str(url or "").strip()
+    if not text:
+        return DEFAULT_BASE_URL
+    if "://" not in text:
+        text = f"https://{text}"
+    return text.rstrip("/")
+
+
+def _base_url_host(url: str) -> str:
+    return (urllib.parse.urlparse(url).hostname or "").lower().removeprefix("www.")
+
+
+def _is_self_hosted(url: str) -> bool:
+    """Self-hosted = the Bridge talks to an instance that is not ours."""
+    return _base_url_host(url) not in OFFICIAL_HOSTS
+
+
+def _apply_base_url(url: str) -> str:
+    """Point every derived endpoint at `url`. Returns the normalized value."""
+    global BASE_URL, CONNECT_URL, API_URL, PM_URL
+    BASE_URL = _normalize_base_url(url)
+    CONNECT_URL = f"{BASE_URL}/bridge/connect"
+    API_URL = f"{BASE_URL}/api/bridge"
+    PM_URL = f"{BASE_URL}/pm"
+    return BASE_URL
+
+
+def _mask_key(key: object) -> str:
+    """Show just enough of a stored API key to recognise it, never all of it."""
+    text = str(key or "")
+    if not text:
+        return ""
+    return f"{text[:3]}…{text[-4:]}" if len(text) > 11 else "…" * 3
+
+
 def _local_speech_has_space() -> bool:
     """Whether the first-run local speech download has a safe disk budget."""
     try:
@@ -126,27 +171,35 @@ class BridgeApi:
     """Exposed to the frontend as `window.pywebview.api`."""
 
     def __init__(self) -> None:
+        cfg = self._read_config()
+
+        # Which OpenSquawk instance we talk to. The environment variable is an
+        # override for development and wins over the stored setting.
+        self.base_url_locked = bool(BASE_URL_ENV)
+        _apply_base_url(BASE_URL_ENV or cfg.get("base_url") or DEFAULT_BASE_URL)
+        # Only self-hosted instances need their own OpenAI key (stored for now,
+        # used by a later release). On our hosts the calls run through us.
+        self.openai_api_key = str(cfg.get("openai_api_key") or "")
+
         self.token = self._load_or_create_token()
 
-        # push-to-talk trigger (see the push-to-talk section). Migrate the old
-        # single-key `ptt_key` string into the new {"type":"keys",...} shape.
-        cfg = self._read_config()
-        local_speech_configured = "local_speech_enabled" in cfg
-        local_speech_enabled = bool(cfg.get("local_speech_enabled", False))
-        if not local_speech_configured and _local_speech_has_space():
-            # First run: install in the background after the UI is responsive.
-            # A persisted explicit user choice always wins on later launches.
-            local_speech_enabled = True
-            self._update_config(local_speech_enabled=True)
+        # Local speech is not optional any more — it always runs, and a failure
+        # surfaces as an error instead of silently falling back to a toggle.
+        if "local_speech_enabled" in cfg:
+            self._update_config(local_speech_enabled=None)
         self._local_speech = {
-            "enabled": local_speech_enabled,
             "ready": False,
             "installing": False,
             "error": None,
             "port": 0,
             "model": "base.en",
+            "models_dir": str(MODELS_DIR),
+            "voices": [],
         }
         self._local_server = None
+
+        # push-to-talk trigger (see the push-to-talk section). Migrate the old
+        # single-key `ptt_key` string into the new {"type":"keys",...} shape.
         trigger = cfg.get("ptt_trigger")
         if not isinstance(trigger, dict):
             legacy = cfg.get("ptt_key")
@@ -220,8 +273,7 @@ class BridgeApi:
         self._start_joystick_listener()
         self._start_mouse_listener()
 
-        if self._local_speech["enabled"]:
-            threading.Thread(target=self._start_local_speech, daemon=True).start()
+        threading.Thread(target=self._start_local_speech, daemon=True).start()
 
         # fire any "app_start"-bound chains once the UI/input is up.
         _app_start = threading.Timer(1.5, lambda: self._fire_hook("app_start"))
@@ -280,24 +332,73 @@ class BridgeApi:
         except Exception as exc:  # pragma: no cover - best effort
             print(f"[config] could not save: {exc}")
 
+    # ---- server / self-hosting ---------------------------------------------
+
+    def set_server(self, base_url: str, openai_api_key: object = None) -> dict:
+        """Point the Bridge at an OpenSquawk instance and store its API key.
+
+        `openai_api_key` is only meaningful for self-hosted instances. Passing
+        None leaves the stored key untouched, "" deletes it.
+        """
+        if self.base_url_locked:
+            return {"ok": False, "error": "OPENSQUAWK_BASE_URL überschreibt diese Einstellung."}
+
+        url = _normalize_base_url(base_url)
+        if not _base_url_host(url):
+            return {"ok": False, "error": "Bitte eine gültige Server-Adresse eingeben."}
+
+        if openai_api_key is not None:
+            self.openai_api_key = str(openai_api_key).strip()
+            self._update_config(openai_api_key=self.openai_api_key or None)
+
+        if url != BASE_URL:
+            _apply_base_url(url)
+            self._update_config(base_url=None if url == DEFAULT_BASE_URL else url)
+            # The pairing code is issued by the instance we were linked to, so a
+            # different server means starting over with a fresh code.
+            with self._lock:
+                self.connected = False
+                self.user = None
+                self.error = None
+                self.polling = True
+            self._rotate_token()
+            # the local speech server only accepts requests from the app origin
+            threading.Thread(target=self._restart_local_speech, daemon=True).start()
+
+        return {"ok": True, "server": self._server_for_ui()}
+
+    def _server_for_ui(self) -> dict:
+        return {
+            "base_url": BASE_URL,
+            "default_base_url": DEFAULT_BASE_URL,
+            "self_hosted": _is_self_hosted(BASE_URL),
+            "locked": self.base_url_locked,
+            "openai_api_key_set": bool(self.openai_api_key),
+            "openai_api_key_masked": _mask_key(self.openai_api_key),
+        }
+
     # ---- local speech ------------------------------------------------------
 
-    def set_local_speech(self, enabled: bool) -> dict:
-        """Enable or disable on-demand local TTS/STT for the radio page."""
-        enabled = bool(enabled)
-        self._local_speech["enabled"] = enabled
-        self._update_config(local_speech_enabled=enabled)
-        if enabled:
-            threading.Thread(target=self._start_local_speech, daemon=True).start()
-        else:
-            self._stop_local_speech()
+    def retry_local_speech(self) -> dict:
+        """Re-run the local speech setup after a failure."""
+        threading.Thread(target=self._restart_local_speech, daemon=True).start()
         return {"ok": True}
+
+    def _restart_local_speech(self) -> None:
+        self._stop_local_speech()
+        self._start_local_speech()
 
     def _start_local_speech(self) -> None:
         import local_speech
 
         self._local_speech.update(installing=True, error=None)
         try:
+            catalog = local_speech.voice_catalog(MODELS_DIR)
+            if not all(voice["installed"] for voice in catalog) and not _local_speech_has_space():
+                raise RuntimeError(
+                    "Zu wenig freier Speicherplatz für die lokale Sprachverarbeitung "
+                    "(ca. 2 GB werden gebraucht)."
+                )
             local_speech.ensure_dependencies()
             voice_paths = local_speech.ensure_piper_voices(MODELS_DIR)
             engines = local_speech.SpeechEngines(
@@ -313,9 +414,19 @@ class BridgeApi:
             )
             server.start()
             self._local_server = server
-            self._local_speech.update(ready=True, installing=False, port=server.port)
+            self._local_speech.update(
+                ready=True,
+                installing=False,
+                port=server.port,
+                voices=local_speech.voice_catalog(MODELS_DIR),
+            )
         except Exception as exc:  # noqa: BLE001 - expose setup failures in the UI
-            self._local_speech.update(ready=False, installing=False, error=str(exc))
+            self._local_speech.update(
+                ready=False,
+                installing=False,
+                error=str(exc),
+                voices=local_speech.voice_catalog(MODELS_DIR),
+            )
 
     def _stop_local_speech(self) -> None:
         if self._local_server:
@@ -1432,6 +1543,7 @@ class BridgeApi:
                 "flight_active": self.flight_active,
                 "error": self.error,
                 "base_url": BASE_URL,
+                "server": self._server_for_ui(),
                 "ptt_key_label": self._trigger_label(self.trigger),
                 "ptt_set": self.trigger is not None,
                 "ptt_capturing": (self._capturing["kind"] if (self._capturing and self._capturing["target"] == "ptt") else None),

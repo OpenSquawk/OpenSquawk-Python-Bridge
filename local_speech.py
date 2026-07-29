@@ -118,6 +118,30 @@ def ensure_piper_voice(models_dir: str | Path) -> Path:
     """Compatibility wrapper for callers that only need the default voice."""
     return ensure_piper_voices(models_dir)[_DEFAULT_PIPER_VOICE]
 
+
+def voice_catalog(models_dir: str | Path) -> list[dict]:
+    """Describe every local voice and where it lives, for the About panel."""
+    voice_dir = Path(models_dir) / "piper"
+    catalog = []
+    for logical_voice, voice_name in _PIPER_VOICES.items():
+        voice_path = voice_dir / f"{voice_name}.onnx"
+        config_path = voice_dir / f"{voice_name}.onnx.json"
+        installed = voice_path.exists() and config_path.exists()
+        try:
+            size = voice_path.stat().st_size if installed else 0
+        except OSError:
+            size = 0
+        catalog.append(
+            {
+                "id": logical_voice,
+                "name": voice_name,
+                "path": str(voice_path),
+                "installed": installed,
+                "size": size,
+            }
+        )
+    return catalog
+
 # Mirror the values of OpenSquawk/shared/utils/radioSpeech.ts's
 # DEFAULT_AIRLINE_TELEPHONY.
 _AIRLINE_TELEPHONY = [

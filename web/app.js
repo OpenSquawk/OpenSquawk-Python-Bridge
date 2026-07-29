@@ -11,6 +11,8 @@ let qrRendered = false;
 let teleOpen = false;        // live telemetry collapsed by default
 let loginClicked = false;    // show the waiting indicator after the user starts login
 let pttCapturing = false;    // mirrors backend capture state for the Set/Cancel toggle
+let aboutServerDirty = false; // user is editing the server URL → polling must not overwrite it
+let aboutVoicesSig = "";      // last rendered voice list, to avoid re-rendering every tick
 
 function api() {
   return window.pywebview && window.pywebview.api;
@@ -19,17 +21,120 @@ function api() {
 function $(id) { return document.getElementById(id); }
 function setText(id, value) { const el = $(id); if (el) el.textContent = value; }
 
-const localSpeechToggle = $("localSpeechToggle");
 const localSpeechStatus = $("localSpeechStatus");
 
+// Local speech always runs. Outside of a failure it stays out of the way —
+// the details live in the About dialog.
 function renderLocalSpeech(localSpeech) {
   if (!localSpeech) return;
-  localSpeechToggle.checked = !!localSpeech.enabled;
-  if (!localSpeech.enabled) localSpeechStatus.textContent = "";
-  else if (localSpeech.error) localSpeechStatus.textContent = "Fehler: " + localSpeech.error;
-  else if (localSpeech.installing) localSpeechStatus.textContent = "Wird eingerichtet… (einmaliger Download)";
-  else if (localSpeech.ready) localSpeechStatus.textContent = "Aktiv · Port " + localSpeech.port + " · " + localSpeech.model;
-  else localSpeechStatus.textContent = "Starte…";
+  const failed = !!localSpeech.error;
+  localSpeechStatus.classList.toggle("hint-error", failed);
+  localSpeechStatus.classList.toggle("hidden", !failed && !localSpeech.installing);
+  if (failed) localSpeechStatus.textContent = "Lokale Sprachverarbeitung nicht verfügbar: " + localSpeech.error;
+  else if (localSpeech.installing) localSpeechStatus.textContent = "Sprachverarbeitung wird eingerichtet… (einmaliger Download)";
+  else localSpeechStatus.textContent = "";
+}
+
+function buildDate(build) {
+  if (!build || !build.committed_at) return null;
+  const date = new Date(build.committed_at);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("de-DE", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  }).format(date);
+}
+
+function speechStateText(speech) {
+  if (!speech) return "—";
+  if (speech.error) return "Fehler: " + speech.error;
+  if (speech.installing) return "Wird eingerichtet… (einmaliger Download)";
+  if (speech.ready) return "Aktiv auf 127.0.0.1:" + speech.port;
+  return "Startet…";
+}
+
+function formatSize(bytes) {
+  if (!bytes) return "";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function renderAbout(state) {
+  const build = state.build || {};
+  setText("about-date", buildDate(build) || "unbekannt");
+  setText("about-commit", build.commit || "unbekannt");
+  setText("about-ref", build.ref || "—");
+
+  // server / self-hosting
+  const server = state.server || {};
+  const urlInput = $("about-base-url");
+  const keyInput = $("about-openai-key");
+  if (document.activeElement !== urlInput && !aboutServerDirty) {
+    urlInput.value = server.base_url || "";
+  }
+  urlInput.disabled = !!server.locked;
+  const selfHosted = urlInput.value
+    ? isSelfHostedUrl(urlInput.value, server.default_base_url)
+    : !!server.self_hosted;
+  $("about-key-wrap").classList.toggle("hidden", !selfHosted);
+  keyInput.disabled = !!server.locked;
+  setText(
+    "about-key-state",
+    server.openai_api_key_set
+      ? "Gespeichert: " + server.openai_api_key_masked + " — Feld leer lassen, um ihn zu behalten."
+      : "Noch kein Key hinterlegt.",
+  );
+  setText(
+    "about-server-hint",
+    server.locked
+      ? "Die Server-Adresse ist über OPENSQUAWK_BASE_URL vorgegeben und kann hier nicht geändert werden."
+      : "Standard ist unser gehosteter Dienst. Wer OpenSquawk selbst betreibt, trägt hier die eigene "
+        + "Adresse ein und braucht dann einen eigenen OpenAI-API-Key.",
+  );
+
+  // local speech
+  const speech = state.local_speech || {};
+  setText("about-speech-state", speechStateText(speech));
+  $("about-speech-state").classList.toggle("hint-error", !!speech.error);
+  setText("about-whisper", speech.model || "—");
+  setText("about-models-dir", speech.models_dir || "—");
+  $("about-speech-retry").classList.toggle("hidden", !speech.error);
+
+  const voices = speech.voices || [];
+  const sig = JSON.stringify(voices);
+  if (sig !== aboutVoicesSig) {
+    aboutVoicesSig = sig;
+    // paths are shown relative to the model folder above — the full path is in
+    // the tooltip so nothing gets lost to truncation.
+    const root = speech.models_dir || "";
+    const shortPath = (path) => (root && path.startsWith(root) ? path.slice(root.length + 1) : path);
+    $("about-voices").innerHTML = voices.length
+      ? voices.map((v) => (
+          '<li class="voice' + (v.installed ? "" : " voice-missing") + '">'
+          + '<span class="voice-id">' + escapeHtml(v.id) + "</span>"
+          + '<span class="voice-path mono" title="' + escapeHtml(v.path) + '">' + escapeHtml(shortPath(v.path)) + "</span>"
+          + '<span class="voice-size">' + (v.installed ? formatSize(v.size) : "nicht installiert") + "</span>"
+          + "</li>"
+        )).join("")
+      : '<li class="voice voice-missing">Noch keine Stimmen installiert.</li>';
+  }
+}
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"]/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]
+  ));
+}
+
+function isSelfHostedUrl(url, defaultUrl) {
+  const host = (input) => {
+    try { return new URL(/:\/\//.test(input) ? input : "https://" + input).hostname.toLowerCase(); }
+    catch (e) { return ""; }
+  };
+  const officialHosts = new Set(["app.opensquawk.de", "opensquawk.de"]);
+  const value = host(url);
+  if (!value) return false;
+  officialHosts.add(host(defaultUrl || ""));
+  return !officialHosts.has(value);
 }
 
 function renderBuildInfo(build) {
@@ -489,6 +594,8 @@ function renderActions(state) {
 
 function render(state) {
   renderBuildInfo(state.build);
+  renderAbout(state);
+  renderLocalSpeech(state.local_speech);
   // pairing code (login view)
   setText("code-digits", state.token || "······");
 
@@ -535,7 +642,6 @@ function render(state) {
 
     renderPtt(state);
     renderActions(state);
-    renderLocalSpeech(state.local_speech);
     const autostart = $("autostart-toggle");
     if (autostart && document.activeElement !== autostart) {
       autostart.checked = !!state.autostart_enabled;
@@ -594,7 +700,34 @@ function wireEvents() {
   });
   $("signup-link").addEventListener("click", (e) => { e.preventDefault(); api().open_signup(); });
   $("open-pm-btn").addEventListener("click", () => api().open_pm());
-  localSpeechToggle.addEventListener("change", () => api().set_local_speech(localSpeechToggle.checked));
+  // about / server dialog
+  const aboutOverlay = $("about-overlay");
+  const openAbout = () => { aboutServerDirty = false; aboutOverlay.classList.remove("hidden"); };
+  const closeAbout = () => { aboutServerDirty = false; aboutOverlay.classList.add("hidden"); };
+  $("build-info").addEventListener("click", openAbout);
+  $("about-close").addEventListener("click", closeAbout);
+  aboutOverlay.addEventListener("click", (e) => { if (e.target === aboutOverlay) closeAbout(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !aboutOverlay.classList.contains("hidden")) closeAbout();
+  });
+  $("about-base-url").addEventListener("input", () => { aboutServerDirty = true; });
+  $("about-server-save").addEventListener("click", async () => {
+    const msg = $("about-server-msg");
+    const key = $("about-openai-key");
+    msg.textContent = "Speichert…";
+    msg.classList.remove("hint-error");
+    // an untouched key field keeps whatever is stored
+    const result = await api().set_server($("about-base-url").value, key.value || null);
+    aboutServerDirty = false;
+    key.value = "";
+    if (result && result.ok) {
+      msg.textContent = "Gespeichert.";
+    } else {
+      msg.textContent = (result && result.error) || "Konnte nicht gespeichert werden.";
+      msg.classList.add("hint-error");
+    }
+  });
+  $("about-speech-retry").addEventListener("click", () => api().retry_local_speech());
   $("autostart-toggle").addEventListener("change", (e) => api().set_autostart(e.target.checked));
   $("ptt-set-btn").addEventListener("click", () => {
     if (pttCapturing === "key") api().ptt_cancel_capture();

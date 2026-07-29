@@ -162,6 +162,25 @@ default. For local backend testing, override the target URL:
 OPENSQUAWK_BASE_URL=http://localhost:3000 python bridge_app.py
 ```
 
+## Self-hosting
+
+Users point the Bridge at their own instance in **About** (click the version in
+the app bar) → *Server*. Anything other than `app.opensquawk.de` counts as
+self-hosted: the dialog then asks for an OpenAI API key, which is stored in
+`~/.opensquawk-bridge/config.json` for use by a later release. On our hosted
+service no key is needed — those calls run server-side.
+
+Changing the server issues a fresh pairing code, since the old one belongs to
+the previous instance. `OPENSQUAWK_BASE_URL` overrides the setting and locks the
+field.
+
+## Local speech
+
+Local TTS/STT (Piper + faster-whisper) is not optional — it always starts in the
+background, downloading its models once into `~/.opensquawk-bridge/models`. If
+setup fails the app says so instead of silently falling back; **About** lists
+the Whisper model plus every voice and where it is installed.
+
 ## Build The macOS Installer (maintainers)
 
 The macOS download is a small **thin launcher** — an unsigned `.app` that

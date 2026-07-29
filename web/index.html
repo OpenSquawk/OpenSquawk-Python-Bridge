@@ -19,7 +19,7 @@
       <span class="brand-sub">Bridge</span>
     </div>
     <div class="appbar-right">
-      <span id="build-info" class="build-info" title="Installierter Stand">Version wird geladen…</span>
+      <button id="build-info" class="build-info" title="Über die Bridge">Version wird geladen…</button>
       <div id="user-chip" class="user-chip hidden">
         <span class="avatar" id="user-avatar"></span>
         <span class="user-name" id="user-name">Pilot</span>
@@ -79,11 +79,7 @@
             <span class="qr-cap">auf Handy<br>oder iPad</span>
           </div>
         </div>
-        <label class="row toggle">
-          <input type="checkbox" id="localSpeechToggle">
-          <span>Sprache lokal verarbeiten (schneller)</span>
-        </label>
-        <div id="localSpeechStatus" class="hint"></div>
+        <div id="localSpeechStatus" class="hint hidden"></div>
       </article>
 
       <!-- Push-to-talk hotkey (collapsible) -->
@@ -319,6 +315,61 @@
         </span>
         <button class="btn btn-small btn-ghost" id="setup-done" hidden>Done</button>
       </div>
+    </div>
+  </div>
+
+  <!-- About / server dialog — reachable from both the login and the main view -->
+  <div id="about-overlay" class="setup-overlay hidden">
+    <div class="setup-modal about-modal" role="dialog" aria-modal="true" aria-labelledby="about-title">
+      <div class="setup-head">
+        <span class="setup-title" id="about-title">Über OpenSquawk Bridge</span>
+        <button class="icon-btn" id="about-close" title="Schließen">✕</button>
+      </div>
+
+      <section class="about-sec">
+        <h4 class="about-h">Version</h4>
+        <dl class="about-list">
+          <div class="about-item"><dt>Stand</dt><dd id="about-date">—</dd></div>
+          <div class="about-item"><dt>Commit</dt><dd id="about-commit" class="mono">—</dd></div>
+          <div class="about-item"><dt>Quelle</dt><dd id="about-ref" class="mono">—</dd></div>
+        </dl>
+      </section>
+
+      <section class="about-sec">
+        <h4 class="about-h">Server</h4>
+        <p class="about-text" id="about-server-hint">
+          Standard ist unser gehosteter Dienst. Wer OpenSquawk selbst betreibt, trägt hier
+          die eigene Adresse ein und braucht dann einen eigenen OpenAI-API-Key.
+        </p>
+        <label class="field-label" for="about-base-url">Server-Adresse</label>
+        <input id="about-base-url" class="about-input mono" type="text" spellcheck="false"
+               placeholder="https://app.opensquawk.de" />
+
+        <div id="about-key-wrap" class="hidden">
+          <label class="field-label" for="about-openai-key">OpenAI-API-Key (selbstgehostet)</label>
+          <input id="about-openai-key" class="about-input mono" type="password" spellcheck="false"
+                 autocomplete="off" placeholder="sk-…" />
+          <p class="about-text" id="about-key-state"></p>
+        </div>
+
+        <div class="about-foot">
+          <button id="about-server-save" class="btn btn-small">Speichern</button>
+          <span id="about-server-msg" class="hint"></span>
+        </div>
+      </section>
+
+      <section class="about-sec">
+        <h4 class="about-h">Sprachverarbeitung (lokal)</h4>
+        <p class="about-text" id="about-speech-state">—</p>
+        <dl class="about-list">
+          <div class="about-item"><dt>Whisper-Modell</dt><dd id="about-whisper" class="mono">—</dd></div>
+          <div class="about-item"><dt>Modellordner</dt><dd id="about-models-dir" class="mono">—</dd></div>
+        </dl>
+        <ul id="about-voices" class="about-voices"></ul>
+        <div class="about-foot">
+          <button id="about-speech-retry" class="btn btn-small btn-ghost hidden">Erneut versuchen</button>
+        </div>
+      </section>
     </div>
   </div>
 

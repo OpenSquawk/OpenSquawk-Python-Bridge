@@ -542,9 +542,20 @@ class BridgeApi:
                 else:
                     with self._lock:
                         self.connected = False
+                        # Any reply proves the network is back, so a stale
+                        # outage banner has to go. 401 is the normal answer
+                        # while the user is still pairing; the rest is worth
+                        # showing.
+                        self.error = (
+                            None if resp.status_code in (401, 403, 404)
+                            else f"Server error ({resp.status_code})"
+                        )
             except requests.RequestException as exc:
                 with self._lock:
                     self.error = f"Network error: {exc.__class__.__name__}"
+            except Exception as exc:  # e.g. a captive portal answering HTML
+                with self._lock:
+                    self.error = f"Unexpected reply: {exc.__class__.__name__}"
             self._stop.wait(POLL_INTERVAL)
 
     def _stream_loop(self) -> None:

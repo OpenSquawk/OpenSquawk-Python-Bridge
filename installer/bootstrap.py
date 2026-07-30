@@ -27,6 +27,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -41,7 +42,10 @@ SYSTEM = platform.system()  # "Darwin", "Linux", "Windows"
 IS_WINDOWS = SYSTEM == "Windows"
 
 USER_AGENT = "OpenSquawk-Bridge-Launcher"
-API_TIMEOUT = 15
+# Kept short on purpose: every second here is a second in which the user has
+# clicked the icon and sees nothing at all. A failed check just means "launch
+# what is installed", so erring towards giving up early is the friendly choice.
+API_TIMEOUT = 8
 DL_TIMEOUT = 300
 DRY_RUN = os.environ.get("OPENSQUAWK_BOOTSTRAP_DRYRUN") == "1"
 # The Linux launcher passes its own absolute path so we can register a .desktop
@@ -75,6 +79,14 @@ else:
 STATE_FILE = SUPPORT / "state.json"
 VERSION_FILE_NAME = ".opensquawk-version.json"
 
+# Single-instance handshake with the running app. This mirrors single_instance.py
+# in the app source — which we cannot import, because this check has to happen
+# before the update step (the slow part we want to skip) and possibly before any
+# source is downloaded at all. Keep the two file names in sync.
+APP_CONFIG_DIR = Path.home() / ".opensquawk-bridge"
+LOCK_FILE = APP_CONFIG_DIR / "app.lock"
+FOCUS_FILE = APP_CONFIG_DIR / "focus.request"
+
 
 def log(msg: str) -> None:
     print(f"[bootstrap] {msg}", flush=True)
@@ -93,6 +105,53 @@ def notify(msg: str) -> None:
         # Windows: no toast (keep it dependency-free); the log covers diagnostics.
     except Exception:
         pass
+
+
+def app_is_running() -> bool:
+    """Whether a Bridge already holds the single-instance lock.
+
+    The running app keeps the lock open for its lifetime, so the OS drops it on
+    exit and a crash cannot leave a stale "already running" behind.
+    """
+    if not LOCK_FILE.exists():
+        return False
+    fd = None
+    try:
+        fd = os.open(LOCK_FILE, os.O_RDWR)
+        if IS_WINDOWS:
+            import msvcrt
+
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        return False  # we could take it, so nobody else has it
+    except OSError:
+        return True
+    finally:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
+def focus_running_app() -> bool:
+    """Ask the running app to show its window; True once it reacted."""
+    try:
+        FOCUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        FOCUS_FILE.write_text(f"{time.time()}\n", encoding="utf-8")
+    except OSError:
+        return False
+    deadline = time.time() + 2.0
+    while time.time() < deadline:
+        if not FOCUS_FILE.exists():  # picked up by the app
+            return True
+        time.sleep(0.1)
+    return False
 
 
 def load_state() -> dict:
@@ -314,18 +373,44 @@ def install_desktop_entry() -> None:
         log(f"desktop entry skipped: {e}")
 
 
+def app_named_interpreter() -> Path:
+    """macOS only: an interpreter whose file name is the app's name.
+
+    The app runs from our venv, not from inside the .app bundle, so macOS has no
+    bundle to read a name from and falls back to the executable's file name —
+    the dock, the menu bar and Force Quit all say "python3.12". Nothing inside
+    the app can change that, but the name of the file we exec is ours to pick.
+
+    The symlink lives next to the real interpreter so the venv still resolves
+    (Python finds pyvenv.cfg beside the executable). Falls back to the plain
+    interpreter if the link cannot be created — a wrong name beats no app.
+    """
+    if SYSTEM != "Darwin":
+        return VENV_PY
+    link = VENV_PY.parent / APP_NAME
+    try:
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        link.symlink_to(VENV_PY.name)
+        return link
+    except OSError as e:
+        log(f"named interpreter skipped: {e}")
+        return VENV_PY
+
+
 def launch_app() -> None:
     entry = SRC / "bridge_app.py"
     if not entry.exists():
         notify("Install is incomplete. Please reinstall OpenSquawk Bridge.")
         raise SystemExit(f"missing entrypoint: {entry}")
-    notify("Starting OpenSquawk Bridge…")
     log("launching app")
     if DRY_RUN:
         log("DRY RUN — not launching the GUI")
         return
     os.chdir(SRC)
     python = str(VENV_PYW if VENV_PYW.exists() else VENV_PY)
+    if SYSTEM == "Darwin":
+        python = str(app_named_interpreter())
     if IS_WINDOWS:
         # execv on Windows would keep the parent console attached; spawn the GUI
         # detached with pythonw and let the launcher exit cleanly.
@@ -338,9 +423,22 @@ def launch_app() -> None:
 
 def main() -> int:
     SUPPORT.mkdir(parents=True, exist_ok=True)
+
+    # Clicking the icon while the Bridge runs used to mean: a full update check
+    # with nothing on screen, then a second window. Hand over to the running app
+    # instead — before the network work, which is what made it slow.
+    if app_is_running():
+        log("app already running - focusing it")
+        if not focus_running_app():
+            notify(f"{APP_NAME} is already running.")
+        return 0
+
     if not UV.exists():
         notify("Setup incomplete: uv is missing.")
         return 1
+    # Say something *now*: the update check below can take seconds, and until
+    # the window opens this notification is the only sign that the click worked.
+    notify(f"Starting {APP_NAME}…")
     try:
         update_source()
         ensure_env()

@@ -28,6 +28,7 @@ import webview
 from build_info import get_build_info, refresh_build_info_async
 
 import actions
+import single_instance
 
 
 def _resource_dir() -> Path:
@@ -44,10 +45,14 @@ DEFAULT_BASE_URL = "https://app.opensquawk.de"
 # which is the only case where the user has to bring their own OpenAI key —
 # on our hosts the speech/LLM calls are paid for and made server-side.
 OFFICIAL_HOSTS = {"app.opensquawk.de", "opensquawk.de"}
+# The public website. It is also the SSO issuer the app logs in against, and it
+# is where an account is created — the app origin has no sign-up of its own.
+WEBSITE_URL = "https://opensquawk.de"
 BASE_URL_ENV = os.environ.get("OPENSQUAWK_BASE_URL")
 
 BASE_URL = DEFAULT_BASE_URL
 CONNECT_URL = f"{BASE_URL}/bridge/connect"
+LOGIN_URL = f"{BASE_URL}/login"
 API_URL = f"{BASE_URL}/api/bridge"
 PM_URL = f"{BASE_URL}/pm"  # the push-to-talk / recording app
 
@@ -122,9 +127,10 @@ def _is_self_hosted(url: str) -> bool:
 
 def _apply_base_url(url: str) -> str:
     """Point every derived endpoint at `url`. Returns the normalized value."""
-    global BASE_URL, CONNECT_URL, API_URL, PM_URL
+    global BASE_URL, CONNECT_URL, LOGIN_URL, API_URL, PM_URL
     BASE_URL = _normalize_base_url(url)
     CONNECT_URL = f"{BASE_URL}/bridge/connect"
+    LOGIN_URL = f"{BASE_URL}/login"
     API_URL = f"{BASE_URL}/api/bridge"
     PM_URL = f"{BASE_URL}/pm"
     return BASE_URL
@@ -990,16 +996,29 @@ class BridgeApi:
     # ---- exposed API (called from JS) -------------------------------------
 
     def login(self) -> dict:
-        """Open the browser to link this token, then keep polling /me."""
-        url = f"{CONNECT_URL}?token={self.token}"
+        """Open the browser to link this token, then keep polling /me.
+
+        Sign-in is single sign-on against the website, not the app origin, so we
+        enter through the app's /login and let it run the SSO round trip and
+        come back to the pairing page. Opening the pairing page directly only
+        gets the user a "please sign in" dead end when there is no session yet.
+        """
+        target = f"/bridge/connect?token={self.token}"
+        url = f"{LOGIN_URL}?redirect={urllib.parse.quote(target, safe='')}"
         self.polling = True
         webbrowser.open(url, new=2)
         return {"ok": True, "url": url}
 
     def open_signup(self) -> dict:
-        """Open the OpenSquawk app in the browser so the user can create an account."""
-        webbrowser.open(BASE_URL, new=2)
-        return {"ok": True, "url": BASE_URL}
+        """Open the sign-up page in the browser.
+
+        Accounts live on the website, which is also the SSO issuer — the app
+        origin has no registration of its own. A self-hosted instance is on its
+        own here, so send those users to their own server.
+        """
+        url = BASE_URL if _is_self_hosted(BASE_URL) else WEBSITE_URL
+        webbrowser.open(url, new=2)
+        return {"ok": True, "url": url}
 
     def open_pm(self) -> dict:
         """Open the OpenSquawk PM/recording app in the browser on this PC."""
@@ -1644,6 +1663,11 @@ def _apply_macos_app_name() -> None:
     When running from source the process is `python`, so macOS labels the app
     menu and dock as 'Python'. Overriding CFBundleName on the main bundle fixes
     it. The packaged .app already carries the right name via its Info.plist.
+
+    This only reaches as far as the bundle the interpreter sits in. What the
+    dock and Force Quit show is the *executable's* file name, which no API can
+    change from in here — the thin launcher therefore runs us through an
+    interpreter named after the app (see installer/bootstrap.py).
     """
     if sys.platform != "darwin":
         return
@@ -1656,6 +1680,38 @@ def _apply_macos_app_name() -> None:
             info["CFBundleName"] = APP_NAME
     except Exception as exc:  # pragma: no cover - platform/optional dependent
         print(f"[name] could not set macOS app name: {exc}")
+
+
+def _bring_to_front(window) -> None:
+    """Raise the window because a second start asked us to (single_instance).
+
+    Every step is best effort and platform dependent: showing/restoring covers a
+    minimised window, the on_top flip raises it above the others, and macOS
+    additionally needs the *app* activated or the window comes up behind the
+    browser the user was just in.
+    """
+    try:
+        window.show()
+        window.restore()
+    except Exception:
+        pass
+    try:
+        window.on_top = True
+        window.on_top = False
+    except Exception:
+        pass
+    if sys.platform != "darwin":
+        return
+    try:
+        from AppKit import NSApplication  # provided by pyobjc
+        from Foundation import NSOperationQueue
+
+        # AppKit is main-thread only and we run on the watcher thread.
+        NSOperationQueue.mainQueue().addOperationWithBlock_(
+            lambda: NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+        )
+    except Exception as exc:  # pragma: no cover - platform/optional dependent
+        print(f"[instance] could not activate the app: {exc}")
 
 
 def _apply_runtime_icon(*_args) -> None:
@@ -1786,6 +1842,9 @@ def _run() -> None:
     window.events.closing += _on_closing
     window.events.shown += _apply_runtime_icon  # set the icon once the UI is up
 
+    # Clicking the app icon again must focus this window, not start a second app.
+    single_instance.watch_focus_requests(lambda: _bring_to_front(window), CONFIG_DIR)
+
     # The GTK/Qt backends accept the PNG via `icon`. The WinForms backend, by
     # contrast, feeds it to System.Drawing.Icon, which only accepts .ico — a .png
     # raises ArgumentException on the GUI thread (unhandled, crashes startup). So
@@ -1800,6 +1859,14 @@ def _run() -> None:
 
 
 def main() -> None:
+    # Before anything else: if a Bridge is already running, hand over to it. A
+    # second window helps nobody, and the launcher that got us here has already
+    # cost the user a visible pause.
+    if not single_instance.acquire(CONFIG_DIR):
+        single_instance.request_focus(CONFIG_DIR)
+        print(f"{APP_NAME} is already running - focusing the existing window.")
+        return
+
     # One catch-all around the whole startup: BridgeApi init, window creation and
     # the backend's event loop. Daemon threads die with the process, so a failed
     # start needs no extra cleanup — just make the error visible (the --windowed

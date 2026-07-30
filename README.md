@@ -270,7 +270,8 @@ The builds are currently not signed:
 
 1. Start OpenSquawk Bridge.
 2. Click `Open login in browser`.
-3. Sign in on app.opensquawk.de and link the shown pairing code.
+3. Sign in with your OpenSquawk account (single sign-on via opensquawk.de) and
+   link the shown pairing code.
 4. Return to the app. After linking, the main view appears.
 5. Under `Simulator`, choose the source:
    - Use `Dummy flight` for testing.
